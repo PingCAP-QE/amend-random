@@ -15,6 +15,7 @@ var (
 	indexSet         = make(map[string]struct{})
 	uniqueIndexMutex sync.Mutex
 	uniqueIndexSet   = make(map[string]struct{})
+	uniqueSets       = NewUniqueSets()
 )
 
 type ddlRandom func(*[]ColumnType, *sql.DB, *Log, *sync.WaitGroup, *sync.WaitGroup)
@@ -57,20 +58,36 @@ func DropIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDDLWg, readyCom
 	readyCommitWg.Done()
 }
 
+type IndexStmt struct {
+	index string
+	stmt  string
+	cols  []ColumnType
+}
+
 func CreateUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDDLWg, readyCommitWg *sync.WaitGroup) {
 	threadName := "create-unique-index"
 	util.AssertNil(log.NewThread(threadName))
 	readyDDLWg.Wait()
+	stmts := make([]IndexStmt, ddlCnt)
 	for i := 0; i < ddlCnt; i++ {
-		index, stmt := addUniqueIndex(*columns, i)
-		logIndex := log.Exec(threadName, stmt)
-		if _, err := db.Exec(stmt); err != nil {
+		index, stmt, cols := addUniqueIndex(*columns, i)
+		stmts[i] = IndexStmt{
+			index: index,
+			stmt:  stmt,
+			cols:  cols,
+		}
+		uniqueSets.NewIndex(index, cols)
+	}
+	for i := 0; i < ddlCnt; i++ {
+		indexStmt := stmts[i]
+		logIndex := log.Exec(threadName, indexStmt.stmt)
+		if _, err := db.Exec(indexStmt.stmt); err != nil {
 			log.Done(threadName, logIndex, err)
 			fmt.Println(err)
 		} else {
 			log.Done(threadName, logIndex, nil)
 			uniqueIndexMutex.Lock()
-			uniqueIndexSet[index] = struct{}{}
+			uniqueIndexSet[indexStmt.index] = struct{}{}
 			uniqueIndexMutex.Unlock()
 		}
 	}
@@ -82,13 +99,17 @@ func DropUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDDLWg, re
 	util.AssertNil(log.NewThread(threadName))
 	readyDDLWg.Wait()
 	for i := 0; i < ddlCnt/2; i++ {
-		_, stmt := dropUniqueIndex()
+		index, stmt := dropUniqueIndex()
 		logIndex := log.Exec(threadName, stmt)
 		if _, err := db.Exec(stmt); err != nil {
 			log.Done(threadName, logIndex, err)
 			fmt.Println(err)
 		} else {
 			log.Done(threadName, logIndex, nil)
+			uniqueIndex := uniqueSets.GetIndex(index)
+			if uniqueIndex != nil {
+				uniqueIndex.unique.dropped = true
+			}
 		}
 	}
 	readyCommitWg.Done()
@@ -145,9 +166,10 @@ func dropIndex() (string, string) {
 	return indexName, b.String()
 }
 
-func addUniqueIndex(columns []ColumnType, i int) (string, string) {
+func addUniqueIndex(columns []ColumnType, i int) (string, string, []ColumnType) {
 	var b strings.Builder
 	indexes := make(map[int]struct{})
+	cols := make([]ColumnType, 0, 5)
 	indexName := fmt.Sprintf("u%d", i)
 
 	fmt.Fprintf(&b, "CREATE UNIQUE INDEX %s on %s(", indexName, tableName)
@@ -161,11 +183,12 @@ func addUniqueIndex(columns []ColumnType, i int) (string, string) {
 			b.WriteString(", ")
 		}
 		col := columns[index]
+		cols = append(cols, col)
 		fmt.Fprintf(&b, "`%s`", col.name)
 	}
 	b.WriteString(")")
 
-	return indexName, b.String()
+	return indexName, b.String(), cols
 }
 
 func dropUniqueIndex() (string, string) {

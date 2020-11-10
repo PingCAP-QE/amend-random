@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/juju/errors"
 )
@@ -206,4 +207,31 @@ func check(db1, db2 *sql.DB) error {
 	}
 
 	return sameResult(db1, db2, query)
+}
+
+func waitSync(db2 *sql.DB, ts int64) {
+	sql := "SELECT * FROM check_points ORDER BY id DESC LIMIT 1"
+	i := 0
+	for {
+		rows, err := db2.Query(sql)
+		if err == nil {
+			var r int64
+			if !rows.Next() {
+				rows.Close()
+				continue
+			}
+			if rows.Scan(&r) != nil {
+				continue
+			}
+			rows.Close()
+			if ts == r {
+				return
+			}
+		}
+		i++
+		if i%600 == 0 {
+			fmt.Printf("sync for %d seconds\n", i/60)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }

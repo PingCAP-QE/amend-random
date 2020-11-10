@@ -69,6 +69,8 @@ github.com/mwitkow/go-conntrack v0.0.0-20161129095857-cc309e4a2223/go.mod h1:qRW
 github.com/ngaut/log v0.0.0-20180314031856-b8e36e7ba5ac/go.mod h1:ueVCjKQllPmX7uEvCYnZD5b8qjidGf1TCH61arVe4SU=
 github.com/oklog/ulid v1.3.1/go.mod h1:CirwcVhetQ6Lv90oh/F+FBtV6XMibvdAFo93nm5qn4U=
 github.com/pelletier/go-toml v1.2.0/go.mod h1:5z9KED0ma1S8pY6P1sdut58dfprrGBbd/94hg7ilaic=
+github.com/pingcap/tidb v1.1.0-beta h1:d/Yw09RQoxh1IK/QNFm9H4ssfI9FqSlBCVowEfbBCmk=
+github.com/pingcap/tidb v2.0.11+incompatible h1:Shz+ry1DzQNsPk1QAejnM+5tgjbwZuzPnIER5aCjQ6c=
 github.com/pkg/errors v0.8.0/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/prometheus/client_golang v0.9.1/go.mod h1:7SWBe2y4D6OKWSNQJUaRYU/AaXPKyh/dDVn+NZz0KFw=
@@ -100,6 +102,8 @@ github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q
 github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:aYKd//L2LvnjZzWKhF00oedf4jCCReLcmhLdhm1A27Q=
 github.com/you06/go-mikadzuki v0.0.0-20200922112459-7aadb8c7d91d h1:Kt6Kvdp0xyZkxVLI5BdxbWQL2fUCZ2oQIphcweGNKKw=
 github.com/you06/go-mikadzuki v0.0.0-20200922112459-7aadb8c7d91d/go.mod h1:WzR96+JZ4SkGFDrmlGAFIrRSo9lMHHAUmaR+jf2piD0=
+github.com/you06/go-mikadzuki v0.0.0-20201110081324-b1b0ba6d7ff0 h1:g8HCM91+0kfVQ89wSOunVTFrLDHsXCLK6jmmmMENOZk=
+github.com/you06/go-mikadzuki v0.0.0-20201110081324-b1b0ba6d7ff0/go.mod h1:k0s5b1sf4ZcNGHhpz/Uz7+u2TA9dPAmoIFPzmq77IR8=
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
 go.uber.org/atomic v1.4.0/go.mod h1:gD2HeocX3+yG+ygLZcrzQJaqmWj9AIm7n08wl/qW/PE=
 go.uber.org/multierr v1.1.0/go.mod h1:wR5kodmAFQ0UK8QlbwjlSNy0Z68gJhDJUG5sjR94q/0=

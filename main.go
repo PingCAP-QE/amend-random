@@ -89,6 +89,8 @@ func main() {
 		}
 	}
 
+	MustExec(db1, "DROP TABLE IF EXISTS check_points")
+	MustExec(db1, "CREATE TABLE check_points(id int)")
 	round := 0
 	for {
 		round++
@@ -103,14 +105,16 @@ func main() {
 }
 
 type ColumnType struct {
+	i    int
 	name string
 	tp   kv.DataType
 	len  int
 	null bool
 }
 
-func NewColumnType(name string, tp kv.DataType, len int, null bool) ColumnType {
+func NewColumnType(i int, name string, tp kv.DataType, len int, null bool) ColumnType {
 	return ColumnType{
+		i:    i,
 		name: name,
 		tp:   tp,
 		len:  len,
@@ -124,7 +128,7 @@ func rdColumns() []ColumnType {
 
 	for i := 0; i < colCnt; i++ {
 		tp := kv.RdType()
-		columns[i] = NewColumnType(fmt.Sprintf("col_%d", i), tp, tp.Size(), util.RdBool())
+		columns[i] = NewColumnType(i, fmt.Sprintf("col_%d", i), tp, tp.Size(), util.RdBool())
 	}
 
 	return columns
@@ -172,61 +176,8 @@ func createTable(columns, primary []ColumnType) string {
 	return b.String()
 }
 
-func insertSQL(columns []ColumnType, count int) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "INSERT INTO %s VALUES", tableName)
-	for i := 0; i < count; i++ {
-		if i != 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString("(")
-		for j, column := range columns {
-			if j != 0 {
-				b.WriteString(", ")
-			}
-			b.WriteString(column.tp.ValToString(column.tp.RandValue()))
-		}
-		b.WriteString(")")
-	}
-	return b.String()
-}
-
-func updateBatchSQL(columns []ColumnType) string {
-	var b strings.Builder
-
-	fmt.Fprintf(&b, "UPDATE %s SET ", tableName)
-	for i := 0; i < util.RdRange(1, 5); i++ {
-		if i != 0 {
-			b.WriteString(", ")
-		}
-
-		l := columns[util.RdRange(0, len(columns))]
-
-		switch l.tp {
-		case kv.Int, kv.BigInt, kv.TinyInt:
-			fmt.Fprintf(&b, "%s=%s/2", l.name, l.name)
-		case kv.Date, kv.Datetime, kv.Timestamp:
-			fmt.Fprintf(&b, "%s = ADDDATE(%s, INTERVAL 1 DAY)", l.name, l.name)
-		case kv.Char, kv.Varchar, kv.Text:
-			fmt.Fprintf(&b, "%s = CONCAT(%s, \"-p\")", l.name, l.name)
-		}
-	}
-
-	b.WriteString(" WHERE ")
-	for i := 0; i < util.RdRange(1, 5); i++ {
-		if i != 0 {
-			b.WriteString(" AND ")
-		}
-
-		col := columns[util.RdRange(0, len(columns))]
-
-		fmt.Fprintf(&b, "%s<%s", col.name, col.tp.ValToString(col.tp.RandValue()))
-	}
-
-	return b.String()
-}
-
 func once(db, db2 *sql.DB, log *Log) error {
+	uniqueSets.Reset()
 	indexSet = make(map[string]struct{})
 	uniqueIndexSet = make(map[string]struct{})
 	columns := rdColumns()
@@ -260,7 +211,7 @@ func once(db, db2 *sql.DB, log *Log) error {
 			util.AssertNil(err)
 			log.Done(threadName, logIndex, nil)
 			readyDDLWg.Done()
-			insertStmt := insertSQL(columns, 10)
+			insertStmt, data := insertSQL(columns, 10)
 			logIndex = log.Exec(threadName, insertStmt)
 			_, err = txn.Exec(insertStmt)
 			if err != nil {
@@ -270,9 +221,9 @@ func once(db, db2 *sql.DB, log *Log) error {
 				log.Done(threadName, logIndex, nil)
 			}
 			for i := 0; i < dmlCnt; i++ {
-				stmt := updateBatchSQL(columns)
+				stmt, cond, cols := updateBatchSQL(columns, data)
 				logIndex := log.Exec(threadName, stmt)
-				_, err := txn.Exec(stmt)
+				err := updateIfNotConflict(txn, stmt, cond, cols)
 				if err != nil {
 					log.Done(threadName, logIndex, err)
 					fmt.Println(err)
@@ -299,8 +250,10 @@ func once(db, db2 *sql.DB, log *Log) error {
 	wg.Wait()
 
 	if db2 != nil {
+		now := time.Now().Unix()
+		MustExec(db, fmt.Sprintf("INSERT INTO check_points VALUES(%d)", now))
 		fmt.Println("wait for sync")
-		time.Sleep(10 * time.Second)
+		waitSync(db2, now)
 		fmt.Println("ready to check")
 	}
 	return check(db, db2)
