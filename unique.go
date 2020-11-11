@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
@@ -66,6 +67,14 @@ OUTER:
 	return uniques
 }
 
+func (u *UniqueSets) GetAllIndexes() []*Unique {
+	var uniques []*Unique
+	for _, index := range u.indexes {
+		uniques = append(uniques, index.unique)
+	}
+	return uniques
+}
+
 func (u *UniqueSets) GetIndex(name string) *UniqueIndex {
 	u.Lock()
 	defer u.Unlock()
@@ -108,18 +117,26 @@ func (u *Unique) row2key(row []interface{}) string {
 	return b.String()
 }
 
-func (u *Unique) NewEntry(row []interface{}) bool {
-	u.Lock()
-	defer u.Unlock()
+func (u *Unique) NewEntry(row []interface{}) {
 	if u.dropped {
-		return true
+		return
 	}
 	entry := u.row2key(row)
 	if _, ok := u.entries[entry]; ok {
-		return false
+		panic(fmt.Sprintf("duplicated entry: %s", entry))
 	}
 	u.entries[entry] = struct{}{}
-	return true
+}
+
+func (u *Unique) HasConflictEntry(row []interface{}) bool {
+	if u.dropped {
+		return false
+	}
+	entry := u.row2key(row)
+	if _, ok := u.entries[entry]; ok {
+		return true
+	}
+	return false
 }
 
 func (u *Unique) HasConflict(befores, afters [][]interface{}) bool {

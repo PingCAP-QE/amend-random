@@ -190,20 +190,23 @@ func once(db, db2 *sql.DB, log *Log) error {
 
 	var (
 		wg            sync.WaitGroup
+		readyDMLWg    sync.WaitGroup
 		readyDDLWg    sync.WaitGroup
 		readyCommitWg sync.WaitGroup
 	)
 	wg.Add(dmlThread)
 	readyDDLWg.Add(dmlThread)
+	readyDMLWg.Add(len(modeFns))
 	readyCommitWg.Add(len(modeFns))
 
 	for _, fn := range modeFns {
-		go fn(&columns, db, log, &readyDDLWg, &readyCommitWg)
+		go fn(&columns, db, log, &readyDMLWg, &readyDDLWg, &readyCommitWg)
 	}
 
 	// dml threads
 	for i := 0; i < dmlThread; i++ {
 		go func(i int) {
+			readyDMLWg.Wait()
 			threadName := fmt.Sprintf("dml-%d", i)
 			util.AssertNil(log.NewThread(threadName))
 			logIndex := log.Exec(threadName, "BEGIN")
@@ -211,7 +214,7 @@ func once(db, db2 *sql.DB, log *Log) error {
 			util.AssertNil(err)
 			log.Done(threadName, logIndex, nil)
 			readyDDLWg.Done()
-			insertStmt, data := insertSQL(columns, 10)
+			insertStmt := insertSQL(columns, 10)
 			logIndex = log.Exec(threadName, insertStmt)
 			_, err = txn.Exec(insertStmt)
 			if err != nil {
@@ -221,7 +224,7 @@ func once(db, db2 *sql.DB, log *Log) error {
 				log.Done(threadName, logIndex, nil)
 			}
 			for i := 0; i < dmlCnt; i++ {
-				stmt, cond, cols := updateBatchSQL(columns, data)
+				stmt, cond, cols := updateBatchSQL(columns)
 				logIndex := log.Exec(threadName, stmt)
 				err := updateIfNotConflict(txn, stmt, cond, cols)
 				if err != nil {

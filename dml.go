@@ -10,34 +10,63 @@ import (
 	"github.com/you06/go-mikadzuki/util"
 )
 
-func insertSQL(columns []ColumnType, count int) (string, [][]interface{}) {
+func insertSQL(columns []ColumnType, count int) string {
 	var (
-		b    strings.Builder
-		data = make([][]interface{}, count)
+		b strings.Builder
 	)
 	fmt.Fprintf(&b, "INSERT INTO %s VALUES", tableName)
+	uniqueSets.Lock()
+	uniques := uniqueSets.GetAllIndexes()
+	for _, unique := range uniques {
+		unique.Lock()
+	}
+	defer func() {
+		for _, unique := range uniques {
+			unique.Unlock()
+		}
+		uniqueSets.Unlock()
+	}()
+
 	for i := 0; i < count; i++ {
 		if i != 0 {
 			b.WriteString(", ")
 		}
 		b.WriteString("(")
 		row := make([]interface{}, len(columns))
+	GENERATE:
+		for {
+			for j, column := range columns {
+				util.AssertEQ(column.i, j)
+				row[j] = column.tp.RandValue()
+			}
+			entries := make([][]interface{}, len(uniques))
+			for j, unique := range uniques {
+				indexRow := make([]interface{}, len(unique.cols))
+				for k, c := range unique.cols {
+					indexRow[k] = row[c.i]
+				}
+				if unique.HasConflictEntry(indexRow) {
+					continue GENERATE
+				}
+				entries[j] = indexRow
+			}
+			for j, entry := range entries {
+				uniques[j].NewEntry(entry)
+			}
+			break GENERATE
+		}
 		for j, column := range columns {
-			util.AssertEQ(column.i, j)
 			if j != 0 {
 				b.WriteString(", ")
 			}
-			v := column.tp.RandValue()
-			b.WriteString(column.tp.ValToString(v))
-			row[j] = v
+			b.WriteString(column.tp.ValToString(row[j]))
 		}
-		data[i] = row
 		b.WriteString(")")
 	}
-	return b.String(), data
+	return b.String()
 }
 
-func updateBatchSQL(columns []ColumnType, data [][]interface{}) (string, string, []ColumnType) {
+func updateBatchSQL(columns []ColumnType) (string, string, []ColumnType) {
 	var (
 		b               strings.Builder
 		selectForUpdate strings.Builder

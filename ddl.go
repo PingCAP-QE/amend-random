@@ -18,9 +18,10 @@ var (
 	uniqueSets       = NewUniqueSets()
 )
 
-type ddlRandom func(*[]ColumnType, *sql.DB, *Log, *sync.WaitGroup, *sync.WaitGroup)
+type ddlRandom func(*[]ColumnType, *sql.DB, *Log, *sync.WaitGroup, *sync.WaitGroup, *sync.WaitGroup)
 
-func CreateIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDDLWg, readyCommitWg *sync.WaitGroup) {
+func CreateIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDLWg, readyCommitWg *sync.WaitGroup) {
+	readyDMLWg.Done()
 	threadName := "create-index"
 	util.AssertNil(log.NewThread(threadName))
 	readyDDLWg.Wait()
@@ -41,7 +42,8 @@ func CreateIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDDLWg, readyC
 	readyCommitWg.Done()
 }
 
-func DropIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDDLWg, readyCommitWg *sync.WaitGroup) {
+func DropIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDLWg, readyCommitWg *sync.WaitGroup) {
+	readyDMLWg.Done()
 	threadName := "drop-index"
 	util.AssertNil(log.NewThread(threadName))
 	readyDDLWg.Wait()
@@ -64,10 +66,9 @@ type IndexStmt struct {
 	cols  []ColumnType
 }
 
-func CreateUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDDLWg, readyCommitWg *sync.WaitGroup) {
+func CreateUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDLWg, readyCommitWg *sync.WaitGroup) {
 	threadName := "create-unique-index"
 	util.AssertNil(log.NewThread(threadName))
-	readyDDLWg.Wait()
 	stmts := make([]IndexStmt, ddlCnt)
 	for i := 0; i < ddlCnt; i++ {
 		index, stmt, cols := addUniqueIndex(*columns, i)
@@ -78,6 +79,8 @@ func CreateUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDDLWg, 
 		}
 		uniqueSets.NewIndex(index, cols)
 	}
+	readyDMLWg.Done()
+	readyDDLWg.Wait()
 	for i := 0; i < ddlCnt; i++ {
 		indexStmt := stmts[i]
 		logIndex := log.Exec(threadName, indexStmt.stmt)
@@ -94,7 +97,8 @@ func CreateUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDDLWg, 
 	readyCommitWg.Done()
 }
 
-func DropUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDDLWg, readyCommitWg *sync.WaitGroup) {
+func DropUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDLWg, readyCommitWg *sync.WaitGroup) {
+	readyDMLWg.Done()
 	threadName := "drop-unique-index"
 	util.AssertNil(log.NewThread(threadName))
 	readyDDLWg.Wait()

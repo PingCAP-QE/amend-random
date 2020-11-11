@@ -232,6 +232,9 @@ func waitSync(db2 *sql.DB, ts int64) {
 		if i%600 == 0 {
 			fmt.Printf("sync for %d seconds\n", i/60)
 		}
+		if i > 10000 {
+			break
+		}
 		time.Sleep(100 * time.Millisecond)
 	}
 }
