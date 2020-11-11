@@ -230,7 +230,15 @@ func query(txn *sql.Tx, columns []ColumnType, stmt string) ([][]interface{}, err
 func updateItem(before interface{}, tp kv.DataType) interface{} {
 	switch tp {
 	case kv.Int, kv.BigInt, kv.TinyInt:
-		return before.(int) / 2
+		i := before.(int)
+		// special rules in MySQL for odd negative number
+		// 85 / 2 = 42
+		// -85 / 2 = -43
+		if i >= 0 || i%2 == 0 {
+			return i / 2
+		} else {
+			return i/2 - 1
+		}
 	case kv.Date, kv.Datetime, kv.Timestamp:
 		return before.(time.Time).Add(24 * time.Hour)
 	case kv.Char, kv.Varchar, kv.Text:
