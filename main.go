@@ -192,9 +192,11 @@ func once(db, db2 *sql.DB, log *Log) error {
 		wg            sync.WaitGroup
 		readyDMLWg    sync.WaitGroup
 		readyDDLWg    sync.WaitGroup
+		doneInsertWg  sync.WaitGroup
 		readyCommitWg sync.WaitGroup
 	)
 	wg.Add(dmlThread)
+	doneInsertWg.Add(dmlThread)
 	readyDDLWg.Add(dmlThread)
 	readyDMLWg.Add(len(modeFns))
 	readyCommitWg.Add(len(modeFns))
@@ -223,6 +225,8 @@ func once(db, db2 *sql.DB, log *Log) error {
 			} else {
 				log.Done(threadName, logIndex, nil)
 			}
+			doneInsertWg.Done()
+			doneInsertWg.Wait()
 			for i := 0; i < dmlCnt; i++ {
 				stmt, cond, cols := updateBatchSQL(columns)
 				logIndex := log.Exec(threadName, stmt)
