@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/you06/go-mikadzuki/kv"
 	"github.com/you06/go-mikadzuki/util"
 )
 
@@ -221,4 +222,48 @@ func dropUniqueIndex() (string, string) {
 	fmt.Fprintf(&b, "ALTER TABLE %s DROP INDEX %s", tableName, indexName)
 
 	return indexName, b.String()
+}
+
+func AddColumn(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDLWg, readyCommitWg *sync.WaitGroup) {
+	readyDMLWg.Done()
+	threadName := "add-column"
+	util.AssertNil(log.NewThread(threadName))
+	readyDDLWg.Wait()
+	for i := 0; i < ddlCnt/2; i++ {
+		rndType := kv.RdType()
+		addColumn := NewColumnType(i, fmt.Sprintf("new_col_%d", i), rndType, rndType.Size(), util.RdBool())
+		stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", tableName, addColumn.ToColStr())
+		logIndex := log.Exec(threadName, stmt)
+		if _, err := db.Exec(stmt); err != nil {
+			log.Done(threadName, logIndex, err)
+			fmt.Println(err)
+		} else {
+			log.Done(threadName, logIndex, nil)
+		}
+	}
+	readyCommitWg.Done()
+}
+
+func DropColumn(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDLWg, readyCommitWg *sync.WaitGroup) {
+	readyDMLWg.Done()
+	threadName := "drop-column"
+	util.AssertNil(log.NewThread(threadName))
+	readyDDLWg.Wait()
+	colNum := len(*columns)
+	leftIndex := 1
+	if colCnt/2 > leftIndex {
+		leftIndex = colCnt / 2
+	}
+	for i := colNum - 1; i >= leftIndex; i-- {
+		dropColumn := (*columns)[i]
+		stmt := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", tableName, dropColumn.name)
+		logIndex := log.Exec(threadName, stmt)
+		if _, err := db.Exec(stmt); err != nil {
+			log.Done(threadName, logIndex, err)
+			fmt.Println(err)
+		} else {
+			log.Done(threadName, logIndex, nil)
+		}
+	}
+	readyCommitWg.Done()
 }
