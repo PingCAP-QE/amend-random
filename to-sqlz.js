@@ -1,9 +1,13 @@
 const fs = require('fs')
 const path = require('path')
 
-const dir = './log/problem-issue'
-
 function main() {
+    const dir = process.argv[2]
+    if (!dir) {
+        console.log('invalid given directory')
+        return
+    }
+
     const logs = fs.readdirSync(dir)
     const ordered = []
     for (const log of logs) {

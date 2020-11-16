@@ -199,10 +199,19 @@ func once(db, db2 *sql.DB, log *Log) error {
 	columns := rdColumns()
 	columns[0].null = false
 	primary := []ColumnType{columns[0]}
+	initThreadName := "init"
+	clearTableStmt := fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
 	createTableStmt := createTable(columns, primary)
 
-	MustExec(db, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+	util.AssertNil(log.NewThread(initThreadName))
+
+	initLogIndex := log.Exec(initThreadName, clearTableStmt)
+	MustExec(db, clearTableStmt)
+	log.Done(initThreadName, initLogIndex, nil)
+
+	initLogIndex = log.Exec(initThreadName, createTableStmt)
 	MustExec(db, createTableStmt)
+	log.Done(initThreadName, initLogIndex, nil)
 
 	var (
 		wg            sync.WaitGroup

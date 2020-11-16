@@ -233,6 +233,7 @@ func waitSync(db2 *sql.DB, ts int64) {
 			fmt.Printf("sync for %d seconds\n", i/60)
 		}
 		if i > 10000 {
+			fmt.Println("sync for 1000 seconds, skip waiting, check the drainer's status and log for details")
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
