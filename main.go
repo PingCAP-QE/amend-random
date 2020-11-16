@@ -27,13 +27,15 @@ var (
 	mode          = ""
 	selectedModes []string
 	modeList      = []string{
-		"create-index", "drop-index", "create-unique-index", "drop-unique-index",
+		"create-index", "drop-index", "create-unique-index", "drop-unique-index", "add-column", "drop-column",
 	}
 	modeMap = map[string]ddlRandom{
 		"create-index":        CreateIndex,
 		"drop-index":          DropIndex,
 		"create-unique-index": CreateUniqueIndex,
 		"drop-unique-index":   DropUniqueIndex,
+		"add-column":          AddColumn,
+		"drop-column":         DropColumn,
 	}
 	modeFns   []ddlRandom
 	tableName = "t"
@@ -110,6 +112,20 @@ type ColumnType struct {
 	tp   kv.DataType
 	len  int
 	null bool
+}
+
+func (c *ColumnType) ToColStr() string {
+	var b strings.Builder
+	if c.len > 0 {
+		fmt.Fprintf(&b, "%s %s(%d)", c.name, c.tp, c.len)
+	} else {
+		fmt.Fprintf(&b, "%s %s", c.name, c.tp)
+	}
+	if !c.null {
+		b.WriteString(" NOT")
+	}
+	b.WriteString(" NULL")
+	return b.String()
 }
 
 func NewColumnType(i int, name string, tp kv.DataType, len int, null bool) ColumnType {
