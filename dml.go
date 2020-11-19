@@ -141,20 +141,20 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 			doneInsertWg.Done()
 			doneInsertWg.Wait()
 
-			//stmt, cond, cols := updateBatchSQL(*columns)
-			//logIndex = log.Exec(threadName, stmt)
-			//err = updateIfNotConflict(txn, stmt, cond, cols)
-			//if err != nil {
-			//	log.Done(threadName, logIndex, err)
-			//	fmt.Println(err)
-			//	if strings.Contains(err.Error(), "Lock wait timeout exceeded") ||
-			//		strings.Contains(err.Error(), "Deadlock found ") {
-			//		doneWg.Done()
-			//		return
-			//	}
-			//} else {
-			//	log.Done(threadName, logIndex, nil)
-			//}
+			// stmt, cond, cols := updateBatchSQL(*columns)
+			// logIndex = log.Exec(threadName, stmt)
+			// err = updateIfNotConflict(txn, stmt, cond, cols)
+			// if err != nil {
+			// 	log.Done(threadName, logIndex, err)
+			// 	fmt.Println(err)
+			// 	if strings.Contains(err.Error(), "Lock wait timeout exceeded") ||
+			// 		strings.Contains(err.Error(), "Deadlock found ") {
+			// 		doneWg.Done()
+			// 		return
+			// 	}
+			// } else {
+			// 	log.Done(threadName, logIndex, nil)
+			// }
 
 			for j := 0; j < dmlCnt/2; j++ {
 				insertStmt := insertSQL(*columns, 10)

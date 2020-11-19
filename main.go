@@ -222,6 +222,11 @@ func once(db, db2 *sql.DB, log *Log) error {
 	columns := rdColumns()
 	columns[0].null = false
 	primary := []ColumnType{columns[0]}
+	if columns[0].tp == kv.TinyInt {
+		columns[1].null = false
+		primary = append(primary, columns[1])
+	}
+	uniqueSets.NewIndex("primary", primary)
 	initThreadName := "init"
 	clearTableStmt := fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
 	createTableStmt := createTable(columns, primary)
