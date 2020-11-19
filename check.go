@@ -206,11 +206,15 @@ func check(db1, db2 *sql.DB) error {
 		return errors.Trace(err)
 	}
 
-	return sameResult(db1, db2, query)
+	if err := sameResult(db1, db2, query); err != nil {
+		return errors.Trace(err)
+	}
+
+	return nil
 }
 
 func waitSync(db2 *sql.DB, ts int64) {
-	sql := "SELECT * FROM check_points ORDER BY id DESC LIMIT 1"
+	sql := fmt.Sprintf("SELECT * FROM %s ORDER BY id DESC LIMIT 1", checkTableName)
 	i := 0
 	for {
 		rows, err := db2.Query(sql)

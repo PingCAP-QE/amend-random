@@ -4,11 +4,178 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/you06/go-mikadzuki/kv"
 	"github.com/you06/go-mikadzuki/util"
 )
+
+type dmlExecutorOption struct {
+	dmlCnt        int
+	dmlThread     int
+	readyDMLWg    *sync.WaitGroup
+	readyDDLWg    *sync.WaitGroup
+	readyCommitWg *sync.WaitGroup
+	doneWg        *sync.WaitGroup
+}
+
+type DMLExecutor func(*[]ColumnType, *sql.DB, *Log, dmlExecutorOption)
+
+func EmptyExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlExecutorOption) {
+	for i := 0; i < opt.dmlThread; i++ {
+		go func(i int) {
+			opt.readyDMLWg.Wait() // wait for init
+			// begin transaction
+			opt.readyDDLWg.Done() // ddl will be executed after this
+			// dmls
+			opt.readyCommitWg.Wait() // wait for ddl done
+			// commit transaction
+			opt.doneWg.Done()
+		}(i)
+	}
+}
+
+func UpdateConflictExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlExecutorOption) {
+	var (
+		dmlCnt        = opt.dmlCnt
+		dmlThread     = opt.dmlThread
+		readyDMLWg    = opt.readyDMLWg
+		readyDDLWg    = opt.readyDDLWg
+		readyCommitWg = opt.readyCommitWg
+		doneWg        = opt.doneWg
+	)
+	var doneInsertWg sync.WaitGroup
+	doneInsertWg.Add(dmlThread)
+
+	for i := 0; i < dmlThread; i++ {
+		go func(i int) {
+			readyDMLWg.Wait()
+			threadName := fmt.Sprintf("dml-%d", i)
+			util.AssertNil(log.NewThread(threadName))
+
+			logIndex := log.Exec(threadName, "BEGIN")
+			txn, err := db.Begin()
+			util.AssertNil(err)
+			log.Done(threadName, logIndex, nil)
+			readyDDLWg.Done()
+
+			insertStmt := insertSQL(*columns, 10)
+			logIndex = log.Exec(threadName, insertStmt)
+			_, err = txn.Exec(insertStmt)
+			if err != nil {
+				log.Done(threadName, logIndex, err)
+				fmt.Println(err)
+			} else {
+				log.Done(threadName, logIndex, nil)
+			}
+			doneInsertWg.Done()
+			doneInsertWg.Wait()
+			for i := 0; i < dmlCnt; i++ {
+				stmt, cond, cols := updateBatchSQL(*columns)
+				logIndex := log.Exec(threadName, stmt)
+				err := updateIfNotConflict(txn, stmt, cond, cols)
+				if err != nil {
+					log.Done(threadName, logIndex, err)
+					fmt.Println(err)
+					if strings.Contains(err.Error(), "Lock wait timeout exceeded") ||
+						strings.Contains(err.Error(), "Deadlock found ") {
+						doneWg.Done()
+						return
+					}
+				} else {
+					log.Done(threadName, logIndex, nil)
+				}
+			}
+			readyCommitWg.Wait()
+			logIndex = log.Exec(threadName, "COMMIT")
+			if err := txn.Commit(); err != nil {
+				log.Done(threadName, logIndex, err)
+			} else {
+				log.Done(threadName, logIndex, nil)
+			}
+			doneWg.Done()
+		}(i)
+	}
+}
+
+func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlExecutorOption) {
+	var (
+		dmlCnt        = opt.dmlCnt
+		dmlThread     = opt.dmlThread
+		readyDMLWg    = opt.readyDMLWg
+		readyDDLWg    = opt.readyDDLWg
+		readyCommitWg = opt.readyCommitWg
+		doneWg        = opt.doneWg
+	)
+	var doneInsertWg sync.WaitGroup
+	doneInsertWg.Add(dmlThread)
+
+	for i := 0; i < dmlThread; i++ {
+		go func(i int) {
+			readyDMLWg.Wait()
+			threadName := fmt.Sprintf("dml-%d", i)
+			util.AssertNil(log.NewThread(threadName))
+
+			logIndex := log.Exec(threadName, "BEGIN")
+			txn, err := db.Begin()
+			util.AssertNil(err)
+			log.Done(threadName, logIndex, nil)
+			readyDDLWg.Done()
+
+			for j := 0; j < dmlCnt/2; j++ {
+				insertStmt := insertSQL(*columns, 10)
+				logIndex = log.Exec(threadName, insertStmt)
+				_, err = txn.Exec(insertStmt)
+				if err != nil {
+					log.Done(threadName, logIndex, err)
+					fmt.Println(err)
+				} else {
+					log.Done(threadName, logIndex, nil)
+				}
+			}
+
+			doneInsertWg.Done()
+			doneInsertWg.Wait()
+
+			//stmt, cond, cols := updateBatchSQL(*columns)
+			//logIndex = log.Exec(threadName, stmt)
+			//err = updateIfNotConflict(txn, stmt, cond, cols)
+			//if err != nil {
+			//	log.Done(threadName, logIndex, err)
+			//	fmt.Println(err)
+			//	if strings.Contains(err.Error(), "Lock wait timeout exceeded") ||
+			//		strings.Contains(err.Error(), "Deadlock found ") {
+			//		doneWg.Done()
+			//		return
+			//	}
+			//} else {
+			//	log.Done(threadName, logIndex, nil)
+			//}
+
+			for j := 0; j < dmlCnt/2; j++ {
+				insertStmt := insertSQL(*columns, 10)
+				logIndex = log.Exec(threadName, insertStmt)
+				_, err = txn.Exec(insertStmt)
+				if err != nil {
+					log.Done(threadName, logIndex, err)
+					fmt.Println(err)
+				} else {
+					log.Done(threadName, logIndex, nil)
+				}
+			}
+
+			readyCommitWg.Wait()
+			logIndex = log.Exec(threadName, "COMMIT")
+			if err := txn.Commit(); err != nil {
+				log.Done(threadName, logIndex, err)
+			} else {
+				log.Done(threadName, logIndex, nil)
+			}
+			doneWg.Done()
+		}(i)
+	}
+}
 
 func insertSQL(columns []ColumnType, count int) string {
 	var (

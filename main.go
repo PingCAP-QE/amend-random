@@ -16,20 +16,19 @@ import (
 )
 
 var (
-	columnLeast   = 2
-	columnMost    = 200
-	colCnt        = 0
-	ddlCnt        = 10
-	dmlCnt        = 10
-	dmlThread     = 20
-	dsn1          = ""
-	dsn2          = ""
-	mode          = ""
-	selectedModes []string
-	modeList      = []string{
-		"create-index", "drop-index", "create-unique-index", "drop-unique-index", "add-column", "drop-column",
-	}
-	modeMap = map[string]ddlRandom{
+	columnLeast     = 2
+	columnMost      = 200
+	colCnt          = 0
+	ddlCnt          = 10
+	dmlCnt          = 10
+	dmlThread       = 20
+	dsn1            = ""
+	dsn2            = ""
+	mode            = ""
+	dmlExecutorName = ""
+	dmlExecutor     DMLExecutor
+	selectedModes   []string
+	modeMap         = map[string]ddlRandom{
 		"create-index":        CreateIndex,
 		"drop-index":          DropIndex,
 		"create-unique-index": CreateUniqueIndex,
@@ -37,19 +36,38 @@ var (
 		"add-column":          AddColumn,
 		"drop-column":         DropColumn,
 	}
-	modeFns   []ddlRandom
-	tableName = "t"
+	dmlExecutors = map[string]DMLExecutor{
+		"update-conflict": UpdateConflictExecutor,
+		"insert-update":   InsertUpdateExecutor,
+	}
+	modeFns        []ddlRandom
+	tableName      = "t"
+	checkTableName = ""
 )
 
 func init() {
+	var (
+		supportedMode     []string
+		supportedExecutor []string
+	)
+	for k := range modeMap {
+		supportedMode = append(supportedMode, k)
+	}
+	for k := range dmlExecutors {
+		supportedExecutor = append(supportedExecutor, k)
+	}
 	flag.IntVar(&dmlCnt, "dml-count", 10, "dml count")
 	flag.IntVar(&dmlThread, "dml-thread", 20, "dml thread")
 	flag.StringVar(&dsn1, "dsn1", "root:@tcp(127.0.0.1:4000)/test?tidb_enable_amend_pessimistic_txn=1", "upstream dsn")
 	flag.StringVar(&dsn2, "dsn2", "", "downstream dsn")
-	flag.StringVar(&mode, "mode", "", fmt.Sprintf("ddl modes, split with \",\", supportted modes: %s", strings.Join(modeList, ",")))
+	flag.StringVar(&mode, "mode", "", fmt.Sprintf("ddl modes, split with \",\", supportted modes: %s", strings.Join(supportedMode, ",")))
+	flag.StringVar(&dmlExecutorName, "executor", supportedExecutor[0], fmt.Sprintf("dml executor, supportted executors: %s", strings.Join(supportedExecutor, ",")))
+	flag.StringVar(&tableName, "tablename", "t", "tablename")
 
 	rand.Seed(time.Now().UnixNano())
 	flag.Parse()
+
+	checkTableName = fmt.Sprintf("check_point_%s", tableName)
 }
 
 func initMode() error {
@@ -71,6 +89,11 @@ func initMode() error {
 	if len(modeFns) == 0 {
 		return errors.New("no sql mode is selected")
 	}
+	if e, ok := dmlExecutors[dmlExecutorName]; !ok {
+		return errors.Errorf("invalid dml executor name `%s`", dmlExecutorName)
+	} else {
+		dmlExecutor = e
+	}
 	return nil
 }
 
@@ -91,8 +114,8 @@ func main() {
 		}
 	}
 
-	MustExec(db1, "DROP TABLE IF EXISTS check_points")
-	MustExec(db1, "CREATE TABLE check_points(id int)")
+	MustExec(db1, fmt.Sprintf("DROP TABLE IF EXISTS %s", checkTableName))
+	MustExec(db1, fmt.Sprintf("CREATE TABLE %s(id int)", checkTableName))
 	round := 0
 	for {
 		round++
@@ -230,60 +253,20 @@ func once(db, db2 *sql.DB, log *Log) error {
 		go fn(&columns, db, log, &readyDMLWg, &readyDDLWg, &readyCommitWg)
 	}
 
-	// dml threads
-	for i := 0; i < dmlThread; i++ {
-		go func(i int) {
-			readyDMLWg.Wait()
-			threadName := fmt.Sprintf("dml-%d", i)
-			util.AssertNil(log.NewThread(threadName))
-			logIndex := log.Exec(threadName, "BEGIN")
-			txn, err := db.Begin()
-			util.AssertNil(err)
-			log.Done(threadName, logIndex, nil)
-			readyDDLWg.Done()
-			insertStmt := insertSQL(columns, 10)
-			logIndex = log.Exec(threadName, insertStmt)
-			_, err = txn.Exec(insertStmt)
-			if err != nil {
-				log.Done(threadName, logIndex, err)
-				fmt.Println(err)
-			} else {
-				log.Done(threadName, logIndex, nil)
-			}
-			doneInsertWg.Done()
-			doneInsertWg.Wait()
-			for i := 0; i < dmlCnt; i++ {
-				stmt, cond, cols := updateBatchSQL(columns)
-				logIndex := log.Exec(threadName, stmt)
-				err := updateIfNotConflict(txn, stmt, cond, cols)
-				if err != nil {
-					log.Done(threadName, logIndex, err)
-					fmt.Println(err)
-					if strings.Contains(err.Error(), "Lock wait timeout exceeded") ||
-						strings.Contains(err.Error(), "Deadlock found ") {
-						wg.Done()
-						return
-					}
-				} else {
-					log.Done(threadName, logIndex, nil)
-				}
-			}
-			readyCommitWg.Wait()
-			logIndex = log.Exec(threadName, "COMMIT")
-			if err := txn.Commit(); err != nil {
-				log.Done(threadName, logIndex, err)
-			} else {
-				log.Done(threadName, logIndex, nil)
-			}
-			wg.Done()
-		}(i)
-	}
+	dmlExecutor(&columns, db, log, dmlExecutorOption{
+		dmlCnt:        dmlCnt,
+		dmlThread:     dmlThread,
+		readyDMLWg:    &readyDMLWg,
+		readyDDLWg:    &readyDDLWg,
+		readyCommitWg: &readyCommitWg,
+		doneWg:        &wg,
+	})
 
 	wg.Wait()
 
 	if db2 != nil {
 		now := time.Now().Unix()
-		MustExec(db, fmt.Sprintf("INSERT INTO check_points VALUES(%d)", now))
+		MustExec(db, fmt.Sprintf("INSERT INTO %s VALUES(%d)", checkTableName, now))
 		fmt.Println("wait for sync")
 		waitSync(db2, now)
 		fmt.Println("ready to check")
