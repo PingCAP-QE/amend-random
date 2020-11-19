@@ -130,6 +130,7 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 					log.Done(threadName, logIndex, err)
 					fmt.Println(err)
 					if breakTxn(err) {
+						doneInsertWg.Done()
 						doneWg.Done()
 						return
 					}
