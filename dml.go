@@ -78,8 +78,7 @@ func UpdateConflictExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dml
 				if err != nil {
 					log.Done(threadName, logIndex, err)
 					fmt.Println(err)
-					if strings.Contains(err.Error(), "Lock wait timeout exceeded") ||
-						strings.Contains(err.Error(), "Deadlock found ") {
+					if breakTxn(err) {
 						doneWg.Done()
 						return
 					}
@@ -130,6 +129,10 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 				if err != nil {
 					log.Done(threadName, logIndex, err)
 					fmt.Println(err)
+					if breakTxn(err) {
+						doneWg.Done()
+						return
+					}
 				} else {
 					log.Done(threadName, logIndex, nil)
 				}
@@ -160,6 +163,10 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 				if err != nil {
 					log.Done(threadName, logIndex, err)
 					fmt.Println(err)
+					if breakTxn(err) {
+						doneWg.Done()
+						return
+					}
 				} else {
 					log.Done(threadName, logIndex, nil)
 				}
@@ -413,4 +420,12 @@ func updateItem(before interface{}, tp kv.DataType) interface{} {
 	default:
 		panic(fmt.Sprintf("tp %s not supported", tp.String()))
 	}
+}
+
+func breakTxn(err error) bool {
+	if strings.Contains(err.Error(), "Lock wait timeout exceeded") ||
+		strings.Contains(err.Error(), "Deadlock found ") {
+		return true
+	}
+	return false
 }

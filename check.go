@@ -210,7 +210,7 @@ func check(db1, db2 *sql.DB) error {
 		return errors.Trace(err)
 	}
 
-	return nil
+	return errors.New("once")
 }
 
 func waitSync(db2 *sql.DB, ts int64) {
