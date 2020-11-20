@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/go-units"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/juju/errors"
 	"github.com/you06/go-mikadzuki/kv"
@@ -22,6 +23,8 @@ var (
 	ddlCnt          = 10
 	dmlCnt          = 10
 	dmlThread       = 20
+	txnSizeStr      = ""
+	txnSize         int64
 	dsn1            = ""
 	dsn2            = ""
 	mode            = ""
@@ -43,6 +46,7 @@ var (
 	modeFns        []ddlRandom
 	tableName      = "t"
 	checkTableName = ""
+	checkOnly      bool
 )
 
 func init() {
@@ -63,6 +67,8 @@ func init() {
 	flag.StringVar(&mode, "mode", "", fmt.Sprintf("ddl modes, split with \",\", supportted modes: %s", strings.Join(supportedMode, ",")))
 	flag.StringVar(&dmlExecutorName, "executor", supportedExecutor[0], fmt.Sprintf("dml executor, supportted executors: %s", strings.Join(supportedExecutor, ",")))
 	flag.StringVar(&tableName, "tablename", "t", "tablename")
+	flag.BoolVar(&checkOnly, "checkonly", false, "only check diff")
+	flag.StringVar(&txnSizeStr, "txn-size", "", "the estimated txn's size, will overwrite dml-count, eg. 100M, 1G")
 
 	rand.Seed(time.Now().UnixNano())
 	flag.Parse()
@@ -89,6 +95,14 @@ func initMode() error {
 	if len(modeFns) == 0 {
 		return errors.New("no sql mode is selected")
 	}
+	if txnSizeStr != "" {
+		var err error
+		txnSize, err = units.RAMInBytes(txnSizeStr)
+		if err != nil {
+			return err
+		}
+	}
+	fmt.Println(txnSize)
 	if e, ok := dmlExecutors[dmlExecutorName]; !ok {
 		return errors.Errorf("invalid dml executor name `%s`", dmlExecutorName)
 	} else {
@@ -112,6 +126,15 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+	}
+
+	if checkOnly {
+		if err := check(db1, db2); err != nil {
+			fmt.Println(err)
+		} else {
+			fmt.Println("check pass, data same.")
+		}
+		return
 	}
 
 	MustExec(db1, fmt.Sprintf("DROP TABLE IF EXISTS %s", checkTableName))

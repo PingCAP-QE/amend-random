@@ -110,6 +110,13 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 	var doneInsertWg sync.WaitGroup
 	doneInsertWg.Add(dmlThread)
 
+	if txnSize != 0 {
+		rowSize := RowSize(*columns)
+		rowCnt := txnSize / int64(rowSize)
+		dmlCnt = int(rowCnt) / 10
+		fmt.Printf("%s will be trans to %d dmls\n", txnSizeStr, dmlCnt)
+	}
+
 	for i := 0; i < dmlThread; i++ {
 		go func(i int) {
 			readyDMLWg.Wait()
@@ -429,4 +436,36 @@ func breakTxn(err error) bool {
 		return true
 	}
 	return false
+}
+
+func RowSize(row []ColumnType) int {
+	s := 0
+	for _, c := range row {
+		s += ColSize(&c)
+	}
+	return s
+}
+
+// ColSize get the byte number of a column
+func ColSize(col *ColumnType) int {
+	switch col.tp {
+	case kv.TinyInt:
+		return 1
+	case kv.Int:
+		return 4
+	case kv.BigInt:
+		return 8
+	case kv.Date:
+		return 3
+	case kv.Datetime:
+		return 8
+	case kv.Timestamp:
+		return 4
+	case kv.Char:
+		return col.len
+	case kv.Varchar:
+		return 1 + col.len
+	default:
+		panic(fmt.Sprintf("unexpected type %s", col.tp))
+	}
 }
