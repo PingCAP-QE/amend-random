@@ -136,6 +136,10 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 	if txnSize != 0 {
 		rowSize := RowSize(*columns)
 		rowCnt := txnSize / int64(rowSize)
+		batchSize = int(rowCnt) / 1000
+		if batchSize > 200 {
+			batchSize = 200
+		}
 		dmlCnt = int(rowCnt) / batchSize
 		fmt.Printf("%s will be trans to %d dmls\n", txnSizeStr, dmlCnt)
 	}

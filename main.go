@@ -72,7 +72,7 @@ func init() {
 	flag.BoolVar(&checkOnly, "checkonly", false, "only check diff")
 	flag.StringVar(&txnSizeStr, "txn-size", "", "the estimated txn's size, will overwrite dml-count, eg. 100M, 1G")
 	flag.IntVar(&totalRound, "round", 0, "exec round, 0 means infinite execution")
-	flag.IntVar(&batchSize, "batch", 10, "batch size of insert")
+	flag.IntVar(&batchSize, "batch", 10, "batch size of insert, 0 for auto")
 
 	rand.Seed(time.Now().UnixNano())
 	flag.Parse()
