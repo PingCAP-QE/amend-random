@@ -102,7 +102,6 @@ func initMode() error {
 			return err
 		}
 	}
-	fmt.Println(txnSize)
 	if e, ok := dmlExecutors[dmlExecutorName]; !ok {
 		return errors.Errorf("invalid dml executor name `%s`", dmlExecutorName)
 	} else {
@@ -245,9 +244,9 @@ func once(db, db2 *sql.DB, log *Log) error {
 	columns := rdColumns()
 	columns[0].null = false
 	primary := []ColumnType{columns[0]}
-	if columns[0].tp == kv.TinyInt {
-		columns[1].null = false
-		primary = append(primary, columns[1])
+	for pi := 1; columns[pi-1].tp == kv.TinyInt; pi++ {
+		columns[pi].null = false
+		primary = append(primary, columns[pi])
 	}
 	uniqueSets.NewIndex("primary", primary)
 	initThreadName := "init"
