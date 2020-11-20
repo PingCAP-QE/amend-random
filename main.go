@@ -306,6 +306,7 @@ func once(db, db2 *sql.DB, log *Log) error {
 
 	wg.Wait()
 
+	uniqueSets.Reset()
 	if db2 != nil {
 		now := time.Now().Unix()
 		MustExec(db, fmt.Sprintf("INSERT INTO %s VALUES(%d)", checkTableName, now))
@@ -315,6 +316,5 @@ func once(db, db2 *sql.DB, log *Log) error {
 		// since the txn's order between tables is not garuantted, we wait extra 10 seconds
 		time.Sleep(10 * time.Second)
 	}
-	uniqueSets.Reset()
 	return check.Check(db, db2, tableName)
 }
