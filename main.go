@@ -12,6 +12,7 @@ import (
 	"github.com/docker/go-units"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/juju/errors"
+	"github.com/you06/amend-random/check"
 	"github.com/you06/go-mikadzuki/kv"
 	"github.com/you06/go-mikadzuki/util"
 )
@@ -132,7 +133,7 @@ func main() {
 	}
 
 	if checkOnly {
-		if err := check(db1, db2); err != nil {
+		if err := check.Check(db1, db2, tableName); err != nil {
 			fmt.Println(err)
 		} else {
 			fmt.Println("check pass, data same.")
@@ -302,8 +303,8 @@ func once(db, db2 *sql.DB, log *Log) error {
 		now := time.Now().Unix()
 		MustExec(db, fmt.Sprintf("INSERT INTO %s VALUES(%d)", checkTableName, now))
 		fmt.Println("wait for sync")
-		waitSync(db2, now)
+		check.WaitSync(db2, now, checkTableName)
 		fmt.Println("ready to check")
 	}
-	return check(db, db2)
+	return check.Check(db, db2, tableName)
 }
