@@ -226,6 +226,7 @@ func errRowNotFound(row []*QueryItem) error {
 }
 
 func Check(db1, db2 *sql.DB, tableName string) error {
+	start := time.Now()
 	query := fmt.Sprintf("SELECT * FROM %s", tableName)
 	showIndexes := fmt.Sprintf("SHOW INDEXES FROM %s", tableName)
 	checkTable := fmt.Sprintf("ADMIN CHECK TABLE %s", tableName)
@@ -249,7 +250,7 @@ func Check(db1, db2 *sql.DB, tableName string) error {
 	if err := sameResult(db1, db2, query); err != nil {
 		return errors.Trace(err)
 	}
-
+	fmt.Printf("check pass in %ds\n", int(time.Since(start).Seconds()))
 	return nil
 }
 

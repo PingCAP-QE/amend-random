@@ -50,6 +50,7 @@ var (
 	tableName      = "t"
 	checkTableName = ""
 	checkOnly      bool
+	mbSize         = 1048576
 )
 
 func init() {
@@ -191,8 +192,11 @@ func NewColumnType(i int, name string, tp kv.DataType, len int, null bool) Colum
 	}
 }
 
-func rdColumns() []ColumnType {
+func rdColumns(least int) []ColumnType {
 	colCnt = util.RdRange(columnLeast, columnMost)
+	if colCnt < least {
+		colCnt = least
+	}
 	columns := make([]ColumnType, colCnt)
 
 	for i := 0; i < colCnt; i++ {
@@ -249,7 +253,11 @@ func once(db, db2 *sql.DB, log *Log) error {
 	uniqueSets.Reset()
 	indexSet = make(map[string]struct{})
 	uniqueIndexSet = make(map[string]struct{})
-	columns := rdColumns()
+	leastCol := 0
+	if txnSize >= 200*mbSize {
+		leastCol = 100
+	}
+	columns := rdColumns(leastCol)
 	columns[0].null = false
 	primary := []ColumnType{columns[0]}
 	for pi := 1; columns[pi-1].tp == kv.TinyInt || pi <= 2; pi++ {
@@ -305,6 +313,8 @@ func once(db, db2 *sql.DB, log *Log) error {
 		fmt.Println("wait for sync")
 		check.WaitSync(db2, now, checkTableName)
 		fmt.Println("ready to check")
+		// since the txn's order between tables is not garuantted, we wait extra 10 seconds
+		time.Sleep(10 * time.Second)
 	}
 	return check.Check(db, db2, tableName)
 }

@@ -28,17 +28,24 @@ func TestSameResults(t *testing.T) {
 		{NullQueryItem(), NullQueryItem(), NotNullQueryItem("v")},
 		{NullQueryItem(), NotNullQueryItem("v"), NotNullQueryItem("v")},
 		{NotNullQueryItem("v"), NotNullQueryItem("v"), NotNullQueryItem("v")},
+		{NotNullQueryItem("v"), NotNullQueryItem("v"), NotNullQueryItem("v")},
+		{NotNullQueryItem("v"), NotNullQueryItem("v"), NotNullQueryItem("v")},
+		{NotNullQueryItem("v"), NotNullQueryItem("v"), NotNullQueryItem("v")},
 	}
 	result2 := [][]*QueryItem{
-		{NotNullQueryItem("v"), NotNullQueryItem("v"), NotNullQueryItem("v")},
+		{NullQueryItem(), NullQueryItem(), NullQueryItem()},
+		{NullQueryItem(), NullQueryItem(), NullQueryItem()},
+		{NullQueryItem(), NullQueryItem(), NotNullQueryItem("v")},
+		{NullQueryItem(), NullQueryItem(), NotNullQueryItem("v")},
 		{NullQueryItem(), NotNullQueryItem("v"), NotNullQueryItem("v")},
-		{NullQueryItem(), NullQueryItem(), NotNullQueryItem("v")},
-		{NullQueryItem(), NullQueryItem(), NotNullQueryItem("v")},
-		{NullQueryItem(), NullQueryItem(), NullQueryItem()},
-		{NullQueryItem(), NullQueryItem(), NullQueryItem()},
+		{NotNullQueryItem("v"), NotNullQueryItem("v"), NotNullQueryItem("v")},
+		{NotNullQueryItem("v"), NotNullQueryItem("v"), NotNullQueryItem("v")},
+		{NotNullQueryItem("v"), NotNullQueryItem("v"), NotNullQueryItem("v")},
+		{NotNullQueryItem("v"), NotNullQueryItem("v"), NotNullQueryItem("v")},
 	}
 	require.Nil(t, rowsSame(result1, result2))
-	require.NotNil(t, rowsSame(result1, append(result2[1:], []*QueryItem{NullQueryItem(), NullQueryItem(), NullQueryItem()})))
+	require.NotNil(t, rowsSame(result1, append(result2[1:], []*QueryItem{NotNullQueryItem("v"), NotNullQueryItem("v"), NotNullQueryItem("v")})))
 	require.NotNil(t, rowsSame(result1, append(result2[1:], []*QueryItem{NullQueryItem(), NullQueryItem(), NotNullQueryItem("v")})))
-	require.NotNil(t, rowsSame(result1, append(result2[:6], []*QueryItem{NotNullQueryItem("v"), NotNullQueryItem("v"), NotNullQueryItem("v")})))
+	result2[len(result2)-1] = []*QueryItem{NotNullQueryItem("v"), NotNullQueryItem("v"), NotNullQueryItem("a")}
+	require.NotNil(t, rowsSame(result1, result2))
 }
