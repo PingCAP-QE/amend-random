@@ -65,7 +65,7 @@ func UpdateConflictExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dml
 			log.Done(threadName, logIndex, nil)
 			readyDDLWg.Done()
 
-			insertStmt := insertSQL(*columns, 10)
+			insertStmt := insertSQL(*columns, batchSize)
 			logIndex = log.Exec(threadName, insertStmt)
 			_, err = txn.Exec(insertStmt)
 			if err != nil {
@@ -136,7 +136,7 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 	if txnSize != 0 {
 		rowSize := RowSize(*columns)
 		rowCnt := txnSize / int64(rowSize)
-		dmlCnt = int(rowCnt) / 10
+		dmlCnt = int(rowCnt) / batchSize
 		fmt.Printf("%s will be trans to %d dmls\n", txnSizeStr, dmlCnt)
 	}
 
@@ -153,7 +153,7 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 			readyDDLWg.Done()
 
 			for j := 0; j < dmlCnt/2; j++ {
-				insertStmt := insertSQL(*columns, 10)
+				insertStmt := insertSQL(*columns, batchSize)
 				logIndex = log.Exec(threadName, insertStmt)
 				_, err = txn.Exec(insertStmt)
 				if err != nil {
@@ -188,7 +188,7 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 			// }
 
 			for j := 0; j < dmlCnt/2; j++ {
-				insertStmt := insertSQL(*columns, 10)
+				insertStmt := insertSQL(*columns, batchSize)
 				logIndex = log.Exec(threadName, insertStmt)
 				_, err = txn.Exec(insertStmt)
 				if err != nil {
@@ -469,7 +469,8 @@ func updateItem(before interface{}, tp kv.DataType) interface{} {
 
 func breakTxn(err error) bool {
 	if strings.Contains(err.Error(), "Lock wait timeout exceeded") ||
-		strings.Contains(err.Error(), "Deadlock found ") {
+		strings.Contains(err.Error(), "Deadlock found ") ||
+		strings.Contains(err.Error(), "TTL manager has timed out") {
 		return true
 	}
 	return false
