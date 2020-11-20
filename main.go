@@ -250,7 +250,6 @@ func createTable(columns, primary []ColumnType) string {
 }
 
 func once(db, db2 *sql.DB, log *Log) error {
-	uniqueSets.Reset()
 	indexSet = make(map[string]struct{})
 	uniqueIndexSet = make(map[string]struct{})
 	leastCol := 0
@@ -316,5 +315,6 @@ func once(db, db2 *sql.DB, log *Log) error {
 		// since the txn's order between tables is not garuantted, we wait extra 10 seconds
 		time.Sleep(10 * time.Second)
 	}
+	uniqueSets.Reset()
 	return check.Check(db, db2, tableName)
 }
