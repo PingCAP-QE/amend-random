@@ -113,7 +113,7 @@ func UpdateConflictExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dml
 			return
 		}
 		avgCommitDuration := totalCommitDuration / doneThread
-		fmt.Println("avg commit duration", avgCommitDuration)
+		fmt.Printf("avg commit duration %ds\n", avgCommitDuration)
 	}()
 }
 
@@ -137,8 +137,8 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 		rowSize := RowSize(*columns)
 		rowCnt := txnSize / int64(rowSize)
 		batchSize = int(rowCnt) / 1000
-		if batchSize > 200 {
-			batchSize = 200
+		if batchSize > 500 {
+			batchSize = 500
 		}
 		dmlCnt = int(rowCnt) / batchSize
 		fmt.Printf("%s will be trans to %d dmls\n", txnSizeStr, dmlCnt)
@@ -229,9 +229,11 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 			return
 		}
 		avgCommitDuration := totalCommitDuration / doneThread
-		fmt.Println("avg commit duration", avgCommitDuration)
+		fmt.Printf("avg commit duration %ds\n", avgCommitDuration)
 	}()
 }
+
+const RETRY_COUNT = 10
 
 func insertSQL(columns []ColumnType, count int) string {
 	var (
@@ -257,7 +259,7 @@ func insertSQL(columns []ColumnType, count int) string {
 		b.WriteString("(")
 		row := make([]interface{}, len(columns))
 	GENERATE:
-		for {
+		for tryTime := 0; true; tryTime++ {
 			for j, column := range columns {
 				util.AssertEQ(column.i, j)
 				row[j] = column.tp.RandValue()
@@ -269,6 +271,9 @@ func insertSQL(columns []ColumnType, count int) string {
 					indexRow[k] = row[c.i]
 				}
 				if unique.HasConflictEntry(indexRow) {
+					if tryTime >= RETRY_COUNT {
+						break GENERATE
+					}
 					continue GENERATE
 				}
 				entries[j] = indexRow

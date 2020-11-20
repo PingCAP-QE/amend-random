@@ -251,7 +251,7 @@ func once(db, db2 *sql.DB, log *Log) error {
 	columns := rdColumns()
 	columns[0].null = false
 	primary := []ColumnType{columns[0]}
-	for pi := 1; columns[pi-1].tp == kv.TinyInt; pi++ {
+	for pi := 1; columns[pi-1].tp == kv.TinyInt || pi <= 2; pi++ {
 		columns[pi].null = false
 		primary = append(primary, columns[pi])
 	}
