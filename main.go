@@ -254,7 +254,7 @@ func once(db, db2 *sql.DB, log *Log) error {
 	indexSet = make(map[string]struct{})
 	uniqueIndexSet = make(map[string]struct{})
 	leastCol := 0
-	if txnSize >= 200*mbSize {
+	if txnSize >= int64(200*mbSize) {
 		leastCol = 100
 	}
 	columns := rdColumns(leastCol)
