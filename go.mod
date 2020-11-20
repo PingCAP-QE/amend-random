@@ -7,5 +7,5 @@ require (
 	github.com/go-sql-driver/mysql v1.5.0
 	github.com/juju/errors v0.0.0-20200330140219-3fe23663418f
 	github.com/stretchr/testify v1.2.2
-	github.com/you06/go-mikadzuki v0.0.0-20201119100130-9dbe6e035464
+	github.com/you06/go-mikadzuki v0.0.0-20201120092655-63648315b792
 )
