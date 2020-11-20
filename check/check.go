@@ -61,9 +61,15 @@ func sameResult(db1, db2 *sql.DB, stmt string) error {
 	if err1 != nil {
 		return errors.Trace(err1)
 	}
+	defer func() {
+		res1.Close()
+	}()
 	if err2 != nil {
 		return errors.Trace(err2)
 	}
+	defer func() {
+		res2.Close()
+	}()
 
 	cols1, err := res1.ColumnTypes()
 	if err != nil {
