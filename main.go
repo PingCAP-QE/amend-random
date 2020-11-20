@@ -23,6 +23,7 @@ var (
 	ddlCnt          = 10
 	dmlCnt          = 10
 	dmlThread       = 20
+	totalRound      = 0
 	txnSizeStr      = ""
 	txnSize         int64
 	dsn1            = ""
@@ -69,6 +70,7 @@ func init() {
 	flag.StringVar(&tableName, "tablename", "t", "tablename")
 	flag.BoolVar(&checkOnly, "checkonly", false, "only check diff")
 	flag.StringVar(&txnSizeStr, "txn-size", "", "the estimated txn's size, will overwrite dml-count, eg. 100M, 1G")
+	flag.IntVar(&totalRound, "round", 0, "exec round, 0 means infinite execution")
 
 	rand.Seed(time.Now().UnixNano())
 	flag.Parse()
@@ -93,7 +95,7 @@ func initMode() error {
 		set[m] = struct{}{}
 	}
 	if len(modeFns) == 0 {
-		return errors.New("no sql mode is selected")
+		fmt.Println("[WARN] no sql mode is selected, there will be DML only")
 	}
 	if txnSizeStr != "" {
 		var err error
@@ -147,6 +149,9 @@ func main() {
 			fmt.Println(err)
 			log.Dump("./log")
 			break
+		}
+		if totalRound != 0 && totalRound >= round {
+			return
 		}
 	}
 }

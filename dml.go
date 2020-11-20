@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/you06/go-mikadzuki/kv"
@@ -46,6 +47,10 @@ func UpdateConflictExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dml
 		doneWg        = opt.doneWg
 	)
 	var doneInsertWg sync.WaitGroup
+	var (
+		totalCommitDuration int64
+		doneThread          int64
+	)
 	doneInsertWg.Add(dmlThread)
 
 	for i := 0; i < dmlThread; i++ {
@@ -88,14 +93,28 @@ func UpdateConflictExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dml
 			}
 			readyCommitWg.Wait()
 			logIndex = log.Exec(threadName, "COMMIT")
+			startCommitTS := time.Now()
 			if err := txn.Commit(); err != nil {
 				log.Done(threadName, logIndex, err)
 			} else {
 				log.Done(threadName, logIndex, nil)
 			}
+			commitDuration := time.Since(startCommitTS).Seconds()
+			atomic.AddInt64(&totalCommitDuration, int64(commitDuration))
+			atomic.AddInt64(&doneThread, 1)
 			doneWg.Done()
 		}(i)
 	}
+
+	go func() {
+		doneWg.Wait()
+		if doneThread == 0 {
+			fmt.Println("all transaction failed")
+			return
+		}
+		avgCommitDuration := totalCommitDuration / doneThread
+		fmt.Println("avg commit duration", avgCommitDuration)
+	}()
 }
 
 func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlExecutorOption) {
@@ -106,6 +125,10 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 		readyDDLWg    = opt.readyDDLWg
 		readyCommitWg = opt.readyCommitWg
 		doneWg        = opt.doneWg
+	)
+	var (
+		totalCommitDuration int64
+		doneThread          int64
 	)
 	var doneInsertWg sync.WaitGroup
 	doneInsertWg.Add(dmlThread)
@@ -182,14 +205,28 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 
 			readyCommitWg.Wait()
 			logIndex = log.Exec(threadName, "COMMIT")
+			startCommitTS := time.Now()
 			if err := txn.Commit(); err != nil {
 				log.Done(threadName, logIndex, err)
 			} else {
 				log.Done(threadName, logIndex, nil)
 			}
+			commitDuration := time.Since(startCommitTS).Seconds()
+			atomic.AddInt64(&totalCommitDuration, int64(commitDuration))
+			atomic.AddInt64(&doneThread, 1)
 			doneWg.Done()
 		}(i)
 	}
+
+	go func() {
+		doneWg.Wait()
+		if doneThread == 0 {
+			fmt.Println("all transaction failed")
+			return
+		}
+		avgCommitDuration := totalCommitDuration / doneThread
+		fmt.Println("avg commit duration", avgCommitDuration)
+	}()
 }
 
 func insertSQL(columns []ColumnType, count int) string {
