@@ -9,27 +9,32 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/go-units"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/juju/errors"
+	"github.com/you06/amend-random/check"
 	"github.com/you06/go-mikadzuki/kv"
 	"github.com/you06/go-mikadzuki/util"
 )
 
 var (
-	columnLeast   = 2
-	columnMost    = 200
-	colCnt        = 0
-	ddlCnt        = 10
-	dmlCnt        = 10
-	dmlThread     = 20
-	dsn1          = ""
-	dsn2          = ""
-	mode          = ""
-	selectedModes []string
-	modeList      = []string{
-		"create-index", "drop-index", "create-unique-index", "drop-unique-index", "add-column", "drop-column",
-	}
-	modeMap = map[string]ddlRandom{
+	columnLeast     = 2
+	columnMost      = 200
+	colCnt          = 0
+	ddlCnt          = 10
+	dmlCnt          = 10
+	dmlThread       = 20
+	batchSize       = 10
+	totalRound      = 0
+	txnSizeStr      = ""
+	txnSize         int64
+	dsn1            = ""
+	dsn2            = ""
+	mode            = ""
+	dmlExecutorName = ""
+	dmlExecutor     DMLExecutor
+	selectedModes   []string
+	modeMap         = map[string]ddlRandom{
 		"create-index":        CreateIndex,
 		"drop-index":          DropIndex,
 		"create-unique-index": CreateUniqueIndex,
@@ -37,19 +42,44 @@ var (
 		"add-column":          AddColumn,
 		"drop-column":         DropColumn,
 	}
-	modeFns   []ddlRandom
-	tableName = "t"
+	dmlExecutors = map[string]DMLExecutor{
+		"update-conflict": UpdateConflictExecutor,
+		"insert-update":   InsertUpdateExecutor,
+	}
+	modeFns        []ddlRandom
+	tableName      = "t"
+	checkTableName = ""
+	checkOnly      bool
+	mbSize         = 1048576
 )
 
 func init() {
+	var (
+		supportedMode     []string
+		supportedExecutor []string
+	)
+	for k := range modeMap {
+		supportedMode = append(supportedMode, k)
+	}
+	for k := range dmlExecutors {
+		supportedExecutor = append(supportedExecutor, k)
+	}
 	flag.IntVar(&dmlCnt, "dml-count", 10, "dml count")
 	flag.IntVar(&dmlThread, "dml-thread", 20, "dml thread")
 	flag.StringVar(&dsn1, "dsn1", "root:@tcp(127.0.0.1:4000)/test?tidb_enable_amend_pessimistic_txn=1", "upstream dsn")
 	flag.StringVar(&dsn2, "dsn2", "", "downstream dsn")
-	flag.StringVar(&mode, "mode", "", fmt.Sprintf("ddl modes, split with \",\", supportted modes: %s", strings.Join(modeList, ",")))
+	flag.StringVar(&mode, "mode", "", fmt.Sprintf("ddl modes, split with \",\", supportted modes: %s", strings.Join(supportedMode, ",")))
+	flag.StringVar(&dmlExecutorName, "executor", supportedExecutor[0], fmt.Sprintf("dml executor, supportted executors: %s", strings.Join(supportedExecutor, ",")))
+	flag.StringVar(&tableName, "tablename", "t", "tablename")
+	flag.BoolVar(&checkOnly, "checkonly", false, "only check diff")
+	flag.StringVar(&txnSizeStr, "txn-size", "", "the estimated txn's size, will overwrite dml-count, eg. 100M, 1G")
+	flag.IntVar(&totalRound, "round", 0, "exec round, 0 means infinite execution")
+	flag.IntVar(&batchSize, "batch", 10, "batch size of insert, 0 for auto")
 
 	rand.Seed(time.Now().UnixNano())
 	flag.Parse()
+
+	checkTableName = fmt.Sprintf("check_point_%s", tableName)
 }
 
 func initMode() error {
@@ -69,7 +99,19 @@ func initMode() error {
 		set[m] = struct{}{}
 	}
 	if len(modeFns) == 0 {
-		return errors.New("no sql mode is selected")
+		fmt.Println("[WARN] no sql mode is selected, there will be DML only")
+	}
+	if txnSizeStr != "" {
+		var err error
+		txnSize, err = units.RAMInBytes(txnSizeStr)
+		if err != nil {
+			return err
+		}
+	}
+	if e, ok := dmlExecutors[dmlExecutorName]; !ok {
+		return errors.Errorf("invalid dml executor name `%s`", dmlExecutorName)
+	} else {
+		dmlExecutor = e
 	}
 	return nil
 }
@@ -91,8 +133,17 @@ func main() {
 		}
 	}
 
-	MustExec(db1, "DROP TABLE IF EXISTS check_points")
-	MustExec(db1, "CREATE TABLE check_points(id int)")
+	if checkOnly {
+		if err := check.Check(db1, db2, tableName); err != nil {
+			fmt.Println(err)
+		} else {
+			fmt.Println("check pass, data same.")
+		}
+		return
+	}
+
+	MustExec(db1, fmt.Sprintf("DROP TABLE IF EXISTS %s", checkTableName))
+	MustExec(db1, fmt.Sprintf("CREATE TABLE %s(id int)", checkTableName))
 	round := 0
 	for {
 		round++
@@ -102,6 +153,9 @@ func main() {
 			fmt.Println(err)
 			log.Dump("./log")
 			break
+		}
+		if totalRound != 0 && totalRound >= round {
+			return
 		}
 	}
 }
@@ -138,8 +192,11 @@ func NewColumnType(i int, name string, tp kv.DataType, len int, null bool) Colum
 	}
 }
 
-func rdColumns() []ColumnType {
+func rdColumns(least int) []ColumnType {
 	colCnt = util.RdRange(columnLeast, columnMost)
+	if colCnt < least {
+		colCnt = least
+	}
 	columns := make([]ColumnType, colCnt)
 
 	for i := 0; i < colCnt; i++ {
@@ -193,16 +250,33 @@ func createTable(columns, primary []ColumnType) string {
 }
 
 func once(db, db2 *sql.DB, log *Log) error {
-	uniqueSets.Reset()
 	indexSet = make(map[string]struct{})
 	uniqueIndexSet = make(map[string]struct{})
-	columns := rdColumns()
+	leastCol := 0
+	if txnSize >= int64(200*mbSize) {
+		leastCol = 100
+	}
+	columns := rdColumns(leastCol)
 	columns[0].null = false
 	primary := []ColumnType{columns[0]}
+	for pi := 1; columns[pi-1].tp == kv.TinyInt || pi <= 2; pi++ {
+		columns[pi].null = false
+		primary = append(primary, columns[pi])
+	}
+	uniqueSets.NewIndex("primary", primary)
+	initThreadName := "init"
+	clearTableStmt := fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
 	createTableStmt := createTable(columns, primary)
 
-	MustExec(db, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+	util.AssertNil(log.NewThread(initThreadName))
+
+	initLogIndex := log.Exec(initThreadName, clearTableStmt)
+	MustExec(db, clearTableStmt)
+	log.Done(initThreadName, initLogIndex, nil)
+
+	initLogIndex = log.Exec(initThreadName, createTableStmt)
 	MustExec(db, createTableStmt)
+	log.Done(initThreadName, initLogIndex, nil)
 
 	var (
 		wg            sync.WaitGroup
@@ -221,63 +295,26 @@ func once(db, db2 *sql.DB, log *Log) error {
 		go fn(&columns, db, log, &readyDMLWg, &readyDDLWg, &readyCommitWg)
 	}
 
-	// dml threads
-	for i := 0; i < dmlThread; i++ {
-		go func(i int) {
-			readyDMLWg.Wait()
-			threadName := fmt.Sprintf("dml-%d", i)
-			util.AssertNil(log.NewThread(threadName))
-			logIndex := log.Exec(threadName, "BEGIN")
-			txn, err := db.Begin()
-			util.AssertNil(err)
-			log.Done(threadName, logIndex, nil)
-			readyDDLWg.Done()
-			insertStmt := insertSQL(columns, 10)
-			logIndex = log.Exec(threadName, insertStmt)
-			_, err = txn.Exec(insertStmt)
-			if err != nil {
-				log.Done(threadName, logIndex, err)
-				fmt.Println(err)
-			} else {
-				log.Done(threadName, logIndex, nil)
-			}
-			doneInsertWg.Done()
-			doneInsertWg.Wait()
-			for i := 0; i < dmlCnt; i++ {
-				stmt, cond, cols := updateBatchSQL(columns)
-				logIndex := log.Exec(threadName, stmt)
-				err := updateIfNotConflict(txn, stmt, cond, cols)
-				if err != nil {
-					log.Done(threadName, logIndex, err)
-					fmt.Println(err)
-					if strings.Contains(err.Error(), "Lock wait timeout exceeded") ||
-						strings.Contains(err.Error(), "Deadlock found ") {
-						wg.Done()
-						return
-					}
-				} else {
-					log.Done(threadName, logIndex, nil)
-				}
-			}
-			readyCommitWg.Wait()
-			logIndex = log.Exec(threadName, "COMMIT")
-			if err := txn.Commit(); err != nil {
-				log.Done(threadName, logIndex, err)
-			} else {
-				log.Done(threadName, logIndex, nil)
-			}
-			wg.Done()
-		}(i)
-	}
+	dmlExecutor(&columns, db, log, dmlExecutorOption{
+		dmlCnt:        dmlCnt,
+		dmlThread:     dmlThread,
+		readyDMLWg:    &readyDMLWg,
+		readyDDLWg:    &readyDDLWg,
+		readyCommitWg: &readyCommitWg,
+		doneWg:        &wg,
+	})
 
 	wg.Wait()
 
+	uniqueSets.Reset()
 	if db2 != nil {
 		now := time.Now().Unix()
-		MustExec(db, fmt.Sprintf("INSERT INTO check_points VALUES(%d)", now))
+		MustExec(db, fmt.Sprintf("INSERT INTO %s VALUES(%d)", checkTableName, now))
 		fmt.Println("wait for sync")
-		waitSync(db2, now)
+		check.WaitSync(db2, now, checkTableName)
 		fmt.Println("ready to check")
+		// since the txn's order between tables is not garuantted, we wait extra 10 seconds
+		time.Sleep(10 * time.Second)
 	}
-	return check(db, db2)
+	return check.Check(db, db2, tableName)
 }

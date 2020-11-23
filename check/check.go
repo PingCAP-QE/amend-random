@@ -1,4 +1,4 @@
-package main
+package check
 
 import (
 	"database/sql"
@@ -26,6 +26,18 @@ func (q *QueryItem) Same(p *QueryItem) bool {
 	return q.ValString == p.ValString
 }
 
+func SameRow(row1, row2 []*QueryItem) bool {
+	if len(row1) != len(row2) {
+		return false
+	}
+	for i := 0; i < len(row1); i++ {
+		if !row1[i].Same(row2[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 func sameResult(db1, db2 *sql.DB, stmt string) error {
 	var (
 		wg   sync.WaitGroup
@@ -49,9 +61,15 @@ func sameResult(db1, db2 *sql.DB, stmt string) error {
 	if err1 != nil {
 		return errors.Trace(err1)
 	}
+	defer func() {
+		res1.Close()
+	}()
 	if err2 != nil {
 		return errors.Trace(err2)
 	}
+	defer func() {
+		res2.Close()
+	}()
 
 	cols1, err := res1.ColumnTypes()
 	if err != nil {
@@ -148,44 +166,73 @@ func sameResult(db1, db2 *sql.DB, stmt string) error {
 		return errors.Errorf("record count not same, up: %d, down: %d", len(result1), len(result2))
 	}
 
-	searched := make(map[int]struct{})
-	width := len(cols1)
-OUTER:
-	for _, row1 := range result1 {
-		for i, row2 := range result2 {
-			if _, ok := searched[i]; ok {
-				continue
+	return rowsSame(result1, result2)
+}
+
+func rowsSame(result1, result2 [][]*QueryItem) error {
+	col0Map := make(map[string][][]*QueryItem)
+	nulls := [][]*QueryItem{} // there should be 0 nulls
+
+	for _, row := range result1 {
+		if row[0].Null {
+			nulls = append(nulls, row)
+		} else {
+			rows, ok := col0Map[row[0].ValString]
+			if !ok {
+				rows = [][]*QueryItem{row}
+			} else {
+				rows = append(rows, row)
 			}
-			same := true
-			for j := 0; j < width; j++ {
-				if !row1[j].Same(row2[j]) {
-					same = false
-					break
+			col0Map[row[0].ValString] = rows
+		}
+	}
+
+OUTER:
+	for _, row2 := range result2 {
+		if row2[0].Null {
+			for i, row1 := range nulls {
+				if SameRow(row1, row2) {
+					nulls = append(nulls[:i], nulls[i+1:]...)
+					continue OUTER
 				}
 			}
-			if same {
-				searched[i] = struct{}{}
-				continue OUTER
+			return errRowNotFound(row2)
+		} else {
+			rows, ok := col0Map[row2[0].ValString]
+			if !ok {
+				return errRowNotFound(row2)
 			}
+			for i, row1 := range rows {
+				if SameRow(row1, row2) {
+					rows = append(rows[:i], rows[i+1:]...)
+					col0Map[row2[0].ValString] = rows
+					continue OUTER
+				}
+			}
+			return errRowNotFound(row2)
 		}
-		var b strings.Builder
-		for i, item := range row1 {
-			if i != 0 {
-				b.WriteString(", ")
-			}
-			if item.Null {
-				b.WriteString("NULL")
-			} else {
-				b.WriteString(item.ValString)
-			}
-		}
-		return errors.Errorf("missing col in down: %s", b.String())
 	}
 
 	return nil
 }
 
-func check(db1, db2 *sql.DB) error {
+func errRowNotFound(row []*QueryItem) error {
+	var b strings.Builder
+	for i, item := range row {
+		if i != 0 {
+			b.WriteString(", ")
+		}
+		if item.Null {
+			b.WriteString("NULL")
+		} else {
+			b.WriteString(item.ValString)
+		}
+	}
+	return errors.Errorf("missing col in down: %s", b.String())
+}
+
+func Check(db1, db2 *sql.DB, tableName string) error {
+	start := time.Now()
 	query := fmt.Sprintf("SELECT * FROM %s", tableName)
 	showIndexes := fmt.Sprintf("SHOW INDEXES FROM %s", tableName)
 	checkTable := fmt.Sprintf("ADMIN CHECK TABLE %s", tableName)
@@ -206,11 +253,15 @@ func check(db1, db2 *sql.DB) error {
 		return errors.Trace(err)
 	}
 
-	return sameResult(db1, db2, query)
+	if err := sameResult(db1, db2, query); err != nil {
+		return errors.Trace(err)
+	}
+	fmt.Printf("check pass in %ds\n", int(time.Since(start).Seconds()))
+	return nil
 }
 
-func waitSync(db2 *sql.DB, ts int64) {
-	sql := "SELECT * FROM check_points ORDER BY id DESC LIMIT 1"
+func WaitSync(db2 *sql.DB, ts int64, checkTableName string) {
+	sql := fmt.Sprintf("SELECT * FROM %s ORDER BY id DESC LIMIT 1", checkTableName)
 	i := 0
 	for {
 		rows, err := db2.Query(sql)
@@ -233,6 +284,7 @@ func waitSync(db2 *sql.DB, ts int64) {
 			fmt.Printf("sync for %d seconds\n", i/60)
 		}
 		if i > 10000 {
+			fmt.Println("sync for 1000 seconds, skip waiting, check the drainer's status and log for details")
 			break
 		}
 		time.Sleep(100 * time.Millisecond)

@@ -4,11 +4,236 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/you06/go-mikadzuki/kv"
 	"github.com/you06/go-mikadzuki/util"
 )
+
+type dmlExecutorOption struct {
+	dmlCnt        int
+	dmlThread     int
+	readyDMLWg    *sync.WaitGroup
+	readyDDLWg    *sync.WaitGroup
+	readyCommitWg *sync.WaitGroup
+	doneWg        *sync.WaitGroup
+}
+
+type DMLExecutor func(*[]ColumnType, *sql.DB, *Log, dmlExecutorOption)
+
+func EmptyExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlExecutorOption) {
+	for i := 0; i < opt.dmlThread; i++ {
+		go func(i int) {
+			opt.readyDMLWg.Wait() // wait for init
+			// begin transaction
+			opt.readyDDLWg.Done() // ddl will be executed after this
+			// dmls
+			opt.readyCommitWg.Wait() // wait for ddl done
+			// commit transaction
+			opt.doneWg.Done()
+		}(i)
+	}
+}
+
+func UpdateConflictExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlExecutorOption) {
+	var (
+		dmlCnt        = opt.dmlCnt
+		dmlThread     = opt.dmlThread
+		readyDMLWg    = opt.readyDMLWg
+		readyDDLWg    = opt.readyDDLWg
+		readyCommitWg = opt.readyCommitWg
+		doneWg        = opt.doneWg
+	)
+	var doneInsertWg sync.WaitGroup
+	var (
+		totalCommitDuration int64
+		doneThread          int64
+	)
+	doneInsertWg.Add(dmlThread)
+
+	for i := 0; i < dmlThread; i++ {
+		go func(i int) {
+			readyDMLWg.Wait()
+			threadName := fmt.Sprintf("dml-%d", i)
+			util.AssertNil(log.NewThread(threadName))
+
+			logIndex := log.Exec(threadName, "BEGIN")
+			txn, err := db.Begin()
+			util.AssertNil(err)
+			log.Done(threadName, logIndex, nil)
+			readyDDLWg.Done()
+
+			insertStmt := insertSQL(*columns, batchSize)
+			logIndex = log.Exec(threadName, insertStmt)
+			_, err = txn.Exec(insertStmt)
+			if err != nil {
+				log.Done(threadName, logIndex, err)
+				fmt.Println(err)
+			} else {
+				log.Done(threadName, logIndex, nil)
+			}
+			doneInsertWg.Done()
+			doneInsertWg.Wait()
+			for i := 0; i < dmlCnt; i++ {
+				stmt, cond, cols := updateBatchSQL(*columns)
+				logIndex := log.Exec(threadName, stmt)
+				err := updateIfNotConflict(txn, stmt, cond, cols)
+				if err != nil {
+					log.Done(threadName, logIndex, err)
+					fmt.Println(err)
+					if breakTxn(err) {
+						doneWg.Done()
+						return
+					}
+				} else {
+					log.Done(threadName, logIndex, nil)
+				}
+			}
+			readyCommitWg.Wait()
+			logIndex = log.Exec(threadName, "COMMIT")
+			startCommitTS := time.Now()
+			if err := txn.Commit(); err != nil {
+				log.Done(threadName, logIndex, err)
+			} else {
+				log.Done(threadName, logIndex, nil)
+			}
+			commitDuration := time.Since(startCommitTS).Seconds()
+			atomic.AddInt64(&totalCommitDuration, int64(commitDuration))
+			atomic.AddInt64(&doneThread, 1)
+			doneWg.Done()
+		}(i)
+	}
+
+	go func() {
+		doneWg.Wait()
+		if doneThread == 0 {
+			fmt.Println("all transaction failed")
+			return
+		}
+		avgCommitDuration := totalCommitDuration / doneThread
+		fmt.Printf("avg commit duration %ds\n", avgCommitDuration)
+	}()
+}
+
+func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlExecutorOption) {
+	var (
+		dmlCnt        = opt.dmlCnt
+		dmlThread     = opt.dmlThread
+		readyDMLWg    = opt.readyDMLWg
+		readyDDLWg    = opt.readyDDLWg
+		readyCommitWg = opt.readyCommitWg
+		doneWg        = opt.doneWg
+	)
+	var (
+		totalCommitDuration int64
+		doneThread          int64
+	)
+	var doneInsertWg sync.WaitGroup
+	doneInsertWg.Add(dmlThread)
+
+	if txnSize != 0 {
+		rowSize := RowSize(*columns)
+		rowCnt := txnSize / int64(rowSize)
+		batchSize = int(rowCnt) / 1000
+		if batchSize > 500 {
+			batchSize = 500
+		}
+		dmlCnt = int(rowCnt) / batchSize
+		fmt.Printf("%s will be trans to %d dmls\n", txnSizeStr, dmlCnt)
+	}
+
+	for i := 0; i < dmlThread; i++ {
+		go func(i int) {
+			readyDMLWg.Wait()
+			threadName := fmt.Sprintf("dml-%d", i)
+			util.AssertNil(log.NewThread(threadName))
+
+			logIndex := log.Exec(threadName, "BEGIN")
+			txn, err := db.Begin()
+			util.AssertNil(err)
+			log.Done(threadName, logIndex, nil)
+			readyDDLWg.Done()
+
+			for j := 0; j < dmlCnt/2; j++ {
+				insertStmt := insertSQL(*columns, batchSize)
+				logIndex = log.Exec(threadName, insertStmt)
+				_, err = txn.Exec(insertStmt)
+				if err != nil {
+					log.Done(threadName, logIndex, err)
+					fmt.Println(err)
+					if breakTxn(err) {
+						doneInsertWg.Done()
+						doneWg.Done()
+						return
+					}
+				} else {
+					log.Done(threadName, logIndex, nil)
+				}
+			}
+
+			doneInsertWg.Done()
+			doneInsertWg.Wait()
+
+			// stmt, cond, cols := updateBatchSQL(*columns)
+			// logIndex = log.Exec(threadName, stmt)
+			// err = updateIfNotConflict(txn, stmt, cond, cols)
+			// if err != nil {
+			// 	log.Done(threadName, logIndex, err)
+			// 	fmt.Println(err)
+			// 	if strings.Contains(err.Error(), "Lock wait timeout exceeded") ||
+			// 		strings.Contains(err.Error(), "Deadlock found ") {
+			// 		doneWg.Done()
+			// 		return
+			// 	}
+			// } else {
+			// 	log.Done(threadName, logIndex, nil)
+			// }
+
+			for j := 0; j < dmlCnt/2; j++ {
+				insertStmt := insertSQL(*columns, batchSize)
+				logIndex = log.Exec(threadName, insertStmt)
+				_, err = txn.Exec(insertStmt)
+				if err != nil {
+					log.Done(threadName, logIndex, err)
+					fmt.Println(err)
+					if breakTxn(err) {
+						doneWg.Done()
+						return
+					}
+				} else {
+					log.Done(threadName, logIndex, nil)
+				}
+			}
+
+			readyCommitWg.Wait()
+			logIndex = log.Exec(threadName, "COMMIT")
+			startCommitTS := time.Now()
+			if err := txn.Commit(); err != nil {
+				log.Done(threadName, logIndex, err)
+			} else {
+				log.Done(threadName, logIndex, nil)
+			}
+			commitDuration := time.Since(startCommitTS).Seconds()
+			atomic.AddInt64(&totalCommitDuration, int64(commitDuration))
+			atomic.AddInt64(&doneThread, 1)
+			doneWg.Done()
+		}(i)
+	}
+
+	go func() {
+		doneWg.Wait()
+		if doneThread == 0 {
+			fmt.Println("all transaction failed")
+			return
+		}
+		avgCommitDuration := totalCommitDuration / doneThread
+		fmt.Printf("avg commit duration %ds\n", avgCommitDuration)
+	}()
+}
+
+const RETRY_COUNT = 10
 
 func insertSQL(columns []ColumnType, count int) string {
 	var (
@@ -34,7 +259,7 @@ func insertSQL(columns []ColumnType, count int) string {
 		b.WriteString("(")
 		row := make([]interface{}, len(columns))
 	GENERATE:
-		for {
+		for tryTime := 0; true; tryTime++ {
 			for j, column := range columns {
 				util.AssertEQ(column.i, j)
 				row[j] = column.tp.RandValue()
@@ -46,6 +271,9 @@ func insertSQL(columns []ColumnType, count int) string {
 					indexRow[k] = row[c.i]
 				}
 				if unique.HasConflictEntry(indexRow) {
+					if tryTime >= RETRY_COUNT {
+						break GENERATE
+					}
 					continue GENERATE
 				}
 				entries[j] = indexRow
@@ -245,5 +473,46 @@ func updateItem(before interface{}, tp kv.DataType) interface{} {
 		return before.(string) + "-p"
 	default:
 		panic(fmt.Sprintf("tp %s not supported", tp.String()))
+	}
+}
+
+func breakTxn(err error) bool {
+	if strings.Contains(err.Error(), "Lock wait timeout exceeded") ||
+		strings.Contains(err.Error(), "Deadlock found ") ||
+		strings.Contains(err.Error(), "TTL manager has timed out") {
+		return true
+	}
+	return false
+}
+
+func RowSize(row []ColumnType) int {
+	s := 0
+	for _, c := range row {
+		s += ColSize(&c)
+	}
+	return s
+}
+
+// ColSize get the byte number of a column
+func ColSize(col *ColumnType) int {
+	switch col.tp {
+	case kv.TinyInt:
+		return 1
+	case kv.Int:
+		return 4
+	case kv.BigInt:
+		return 8
+	case kv.Date:
+		return 3
+	case kv.Datetime:
+		return 8
+	case kv.Timestamp:
+		return 4
+	case kv.Char:
+		return col.len
+	case kv.Varchar:
+		return 1 + col.len
+	default:
+		panic(fmt.Sprintf("unexpected type %s", col.tp))
 	}
 }

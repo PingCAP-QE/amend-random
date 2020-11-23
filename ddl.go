@@ -229,7 +229,7 @@ func AddColumn(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDL
 	threadName := "add-column"
 	util.AssertNil(log.NewThread(threadName))
 	readyDDLWg.Wait()
-	for i := 0; i < ddlCnt/2; i++ {
+	for i := 0; i < ddlCnt; i++ {
 		rndType := kv.RdType()
 		addColumn := NewColumnType(i, fmt.Sprintf("new_col_%d", i), rndType, rndType.Size(), util.RdBool())
 		stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", tableName, addColumn.ToColStr())
