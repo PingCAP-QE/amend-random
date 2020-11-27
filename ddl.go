@@ -38,7 +38,7 @@ func CreateIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyD
 			indexMutex.Lock()
 			indexSet[index] = struct{}{}
 			indexMutex.Unlock()
-			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName)
+			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
 			if doErr != nil {
 				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
 			}
@@ -62,7 +62,7 @@ func DropIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDL
 			fmt.Println(err)
 		} else {
 			log.Done(threadName, logIndex, nil)
-			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName)
+			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
 			if doErr != nil {
 				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
 			}
@@ -104,7 +104,7 @@ func CreateUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, 
 			uniqueIndexMutex.Lock()
 			uniqueIndexSet[indexStmt.index] = struct{}{}
 			uniqueIndexMutex.Unlock()
-			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName)
+			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
 			if doErr != nil {
 				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
 			}
@@ -131,7 +131,7 @@ func DropUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, re
 			if uniqueIndex != nil {
 				uniqueIndex.unique.dropped = true
 			}
-			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName)
+			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
 			if doErr != nil {
 				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
 			}
@@ -261,7 +261,7 @@ func AddColumn(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDL
 			fmt.Println(err)
 		} else {
 			log.Done(threadName, logIndex, nil)
-			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName)
+			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
 			if doErr != nil {
 				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
 			}
@@ -290,7 +290,7 @@ func DropColumn(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDD
 			fmt.Println(err)
 		} else {
 			log.Done(threadName, logIndex, nil)
-			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName)
+			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
 			if doErr != nil {
 				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
 			}
@@ -299,15 +299,15 @@ func DropColumn(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDD
 	readyCommitWg.Done()
 }
 
-func DoSomeUnrelatedDDLs(db *sql.DB, tableName *string) error {
+func DoSomeUnrelatedDDLs(db *sql.DB, tableName *string, threadName string, log *Log) error {
 	if len(*tableName) > 0 {
-		err := DoUnrelatedDropTableDDL(db, *tableName)
+		err := DoUnrelatedDropTableDDL(db, *tableName, threadName, log)
 		if err != nil {
 			return err
 		}
 		*tableName = ""
 	} else {
-		err, name := DoUnrelatedCreateTableDDL(db)
+		err, name := DoUnrelatedCreateTableDDL(db, threadName, log)
 		if err != nil {
 			return err
 		}
@@ -316,22 +316,28 @@ func DoSomeUnrelatedDDLs(db *sql.DB, tableName *string) error {
 	return nil
 }
 
-func DoUnrelatedCreateTableDDL(db *sql.DB) (error, string) {
+func DoUnrelatedCreateTableDDL(db *sql.DB, threadName string, log *Log) (error, string) {
 	columns, primary := RdColumnsAndPk(5)
 	tableName := fmt.Sprintf("t_%d", time.Now().UnixNano())
 	createStmt := GenCreateTableStmt(columns, primary, tableName)
+	logIndex := log.Exec(threadName, createStmt)
 	if _, err := db.Exec(createStmt); err != nil {
+		log.Done(threadName, logIndex, err)
 		fmt.Println(err)
 		return err, ""
 	}
+	log.Done(threadName, logIndex, nil)
 	return nil, tableName
 }
 
-func DoUnrelatedDropTableDDL(db *sql.DB, tableName string) error {
+func DoUnrelatedDropTableDDL(db *sql.DB, tableName string, threadName string, log *Log) error {
 	dropStmt := GenDropTableStmt(tableName)
+	logIndex := log.Exec(threadName, dropStmt)
 	if _, err := db.Exec(dropStmt); err != nil {
+		log.Done(threadName, logIndex, err)
 		fmt.Println(err)
 		return err
 	}
+	log.Done(threadName, logIndex, nil)
 	return nil
 }
