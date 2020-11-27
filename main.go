@@ -231,7 +231,7 @@ func GenDropTableStmt(tableName string) string {
 
 func GenCreateTableStmt(columns, primary []ColumnType, tableName string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "CREATE TABLE %s(\n", tableName)
+	fmt.Fprintf(&b, "CREATE TABLE IF NOT EXISTS %s(\n", tableName)
 	for i, column := range columns {
 		if column.len > 0 {
 			fmt.Fprintf(&b, "%s %s(%d)", column.name, column.tp, column.len)
