@@ -24,6 +24,7 @@ type ddlRandom func(*[]ColumnType, *sql.DB, *Log, *sync.WaitGroup, *sync.WaitGro
 func CreateIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDLWg, readyCommitWg *sync.WaitGroup) {
 	readyDMLWg.Done()
 	threadName := "create-index"
+	var unrelatedTblName string
 	util.AssertNil(log.NewThread(threadName))
 	readyDDLWg.Wait()
 	for i := 0; i < ddlCnt; i++ {
@@ -37,6 +38,10 @@ func CreateIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyD
 			indexMutex.Lock()
 			indexSet[index] = struct{}{}
 			indexMutex.Unlock()
+			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
+			if doErr != nil {
+				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
+			}
 		}
 	}
 
@@ -46,6 +51,7 @@ func CreateIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyD
 func DropIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDLWg, readyCommitWg *sync.WaitGroup) {
 	readyDMLWg.Done()
 	threadName := "drop-index"
+	var unrelatedTblName string
 	util.AssertNil(log.NewThread(threadName))
 	readyDDLWg.Wait()
 	for i := 0; i < ddlCnt/2; i++ {
@@ -56,6 +62,10 @@ func DropIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDL
 			fmt.Println(err)
 		} else {
 			log.Done(threadName, logIndex, nil)
+			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
+			if doErr != nil {
+				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
+			}
 		}
 	}
 	readyCommitWg.Done()
@@ -69,6 +79,7 @@ type IndexStmt struct {
 
 func CreateUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDLWg, readyCommitWg *sync.WaitGroup) {
 	threadName := "create-unique-index"
+	var unrelatedTblName string
 	util.AssertNil(log.NewThread(threadName))
 	stmts := make([]IndexStmt, ddlCnt)
 	for i := 0; i < ddlCnt; i++ {
@@ -93,6 +104,10 @@ func CreateUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, 
 			uniqueIndexMutex.Lock()
 			uniqueIndexSet[indexStmt.index] = struct{}{}
 			uniqueIndexMutex.Unlock()
+			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
+			if doErr != nil {
+				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
+			}
 		}
 	}
 	readyCommitWg.Done()
@@ -101,6 +116,7 @@ func CreateUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, 
 func DropUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDLWg, readyCommitWg *sync.WaitGroup) {
 	readyDMLWg.Done()
 	threadName := "drop-unique-index"
+	var unrelatedTblName string
 	util.AssertNil(log.NewThread(threadName))
 	readyDDLWg.Wait()
 	for i := 0; i < ddlCnt/2; i++ {
@@ -114,6 +130,10 @@ func DropUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, re
 			uniqueIndex := uniqueSets.GetIndex(index)
 			if uniqueIndex != nil {
 				uniqueIndex.unique.dropped = true
+			}
+			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
+			if doErr != nil {
+				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
 			}
 		}
 	}
@@ -229,7 +249,9 @@ func AddColumn(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDL
 	threadName := "add-column"
 	util.AssertNil(log.NewThread(threadName))
 	readyDDLWg.Wait()
-	for i := 0; i < ddlCnt; i++ {
+	var unrelatedTblName string
+	ddlNum := ddlCnt + util.RdRange(1, 10)
+	for i := 0; i < ddlNum; i++ {
 		rndType := kv.RdType()
 		addColumn := NewColumnType(i, fmt.Sprintf("new_col_%d", i), rndType, rndType.Size(), util.RdBool())
 		stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", tableName, addColumn.ToColStr())
@@ -239,6 +261,10 @@ func AddColumn(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDL
 			fmt.Println(err)
 		} else {
 			log.Done(threadName, logIndex, nil)
+			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
+			if doErr != nil {
+				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
+			}
 		}
 	}
 	readyCommitWg.Done()
@@ -251,6 +277,7 @@ func DropColumn(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDD
 	readyDDLWg.Wait()
 	colNum := len(*columns)
 	leftIndex := 1
+	var unrelatedTblName string
 	if colCnt/2 > leftIndex {
 		leftIndex = colCnt / 2
 	}
@@ -263,7 +290,54 @@ func DropColumn(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDD
 			fmt.Println(err)
 		} else {
 			log.Done(threadName, logIndex, nil)
+			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
+			if doErr != nil {
+				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
+			}
 		}
 	}
 	readyCommitWg.Done()
+}
+
+func DoSomeUnrelatedDDLs(db *sql.DB, tableName *string, threadName string, log *Log) error {
+	if len(*tableName) > 0 {
+		err := DoUnrelatedDropTableDDL(db, *tableName, threadName, log)
+		if err != nil {
+			return err
+		}
+		*tableName = ""
+	} else {
+		err, name := DoUnrelatedCreateTableDDL(db, threadName, log)
+		if err != nil {
+			return err
+		}
+		*tableName = name
+	}
+	return nil
+}
+
+func DoUnrelatedCreateTableDDL(db *sql.DB, threadName string, log *Log) (error, string) {
+	columns, primary := RdColumnsAndPk(5)
+	tableName := fmt.Sprintf("t_%d", time.Now().UnixNano())
+	createStmt := GenCreateTableStmt(columns, primary, tableName)
+	logIndex := log.Exec(threadName, createStmt)
+	if _, err := db.Exec(createStmt); err != nil {
+		log.Done(threadName, logIndex, err)
+		fmt.Println(err)
+		return err, ""
+	}
+	log.Done(threadName, logIndex, nil)
+	return nil, tableName
+}
+
+func DoUnrelatedDropTableDDL(db *sql.DB, tableName string, threadName string, log *Log) error {
+	dropStmt := GenDropTableStmt(tableName)
+	logIndex := log.Exec(threadName, dropStmt)
+	if _, err := db.Exec(dropStmt); err != nil {
+		log.Done(threadName, logIndex, err)
+		fmt.Println(err)
+		return err
+	}
+	log.Done(threadName, logIndex, nil)
+	return nil
 }

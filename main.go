@@ -64,6 +64,7 @@ func init() {
 	for k := range dmlExecutors {
 		supportedExecutor = append(supportedExecutor, k)
 	}
+	flag.IntVar(&ddlCnt, "ddl-count", 10, "ddl count, one ddl execution increase at least one schema diff")
 	flag.IntVar(&dmlCnt, "dml-count", 10, "dml count")
 	flag.IntVar(&dmlThread, "dml-thread", 20, "dml thread")
 	flag.StringVar(&dsn1, "dsn1", "root:@tcp(127.0.0.1:4000)/test?tidb_enable_amend_pessimistic_txn=1", "upstream dsn")
@@ -192,6 +193,17 @@ func NewColumnType(i int, name string, tp kv.DataType, len int, null bool) Colum
 	}
 }
 
+func RdColumnsAndPk(leastCol int) ([]ColumnType, []ColumnType) {
+	columns := rdColumns(leastCol)
+	columns[0].null = false
+	primary := []ColumnType{columns[0]}
+	for pi := 1; columns[pi-1].tp == kv.TinyInt || pi <= 2; pi++ {
+		columns[pi].null = false
+		primary = append(primary, columns[pi])
+	}
+	return columns, primary
+}
+
 func rdColumns(least int) []ColumnType {
 	colCnt = util.RdRange(columnLeast, columnMost)
 	if colCnt < least {
@@ -213,9 +225,13 @@ func MustExec(db *sql.DB, sql string) {
 	}
 }
 
-func createTable(columns, primary []ColumnType) string {
+func GenDropTableStmt(tableName string) string {
+	return fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
+}
+
+func GenCreateTableStmt(columns, primary []ColumnType, tableName string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "CREATE TABLE %s(\n", tableName)
+	fmt.Fprintf(&b, "CREATE TABLE IF NOT EXISTS %s(\n", tableName)
 	for i, column := range columns {
 		if column.len > 0 {
 			fmt.Fprintf(&b, "%s %s(%d)", column.name, column.tp, column.len)
@@ -256,17 +272,11 @@ func once(db, db2 *sql.DB, log *Log) error {
 	if txnSize >= int64(200*mbSize) {
 		leastCol = 100
 	}
-	columns := rdColumns(leastCol)
-	columns[0].null = false
-	primary := []ColumnType{columns[0]}
-	for pi := 1; columns[pi-1].tp == kv.TinyInt || pi <= 2; pi++ {
-		columns[pi].null = false
-		primary = append(primary, columns[pi])
-	}
+	columns, primary := RdColumnsAndPk(leastCol)
 	uniqueSets.NewIndex("primary", primary)
 	initThreadName := "init"
-	clearTableStmt := fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)
-	createTableStmt := createTable(columns, primary)
+	clearTableStmt := GenDropTableStmt(tableName)
+	createTableStmt := GenCreateTableStmt(columns, primary, tableName)
 
 	util.AssertNil(log.NewThread(initThreadName))
 
