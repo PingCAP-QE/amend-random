@@ -319,7 +319,7 @@ func DoSomeUnrelatedDDLs(db *sql.DB, tableName *string, threadName string, log *
 func DoUnrelatedCreateTableDDL(db *sql.DB, threadName string, log *Log) (error, string) {
 	columns, primary := RdColumnsAndPk(5)
 	tableName := fmt.Sprintf("t_%d", time.Now().UnixNano())
-	createStmt := GenCreateTableStmt(columns, primary, tableName)
+	createStmt := strings.ReplaceAll(GenCreateTableStmt(columns, primary, tableName), "\n", "")
 	logIndex := log.Exec(threadName, createStmt)
 	if _, err := db.Exec(createStmt); err != nil {
 		log.Done(threadName, logIndex, err)
