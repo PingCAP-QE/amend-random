@@ -285,7 +285,10 @@ func once(db, db2 *sql.DB, log *Log) error {
 	log.Done(initThreadName, initLogIndex, nil)
 
 	initLogIndex = log.Exec(initThreadName, createTableStmt)
-	MustExec(db, createTableStmt)
+	if _, err := db.Exec(createTableStmt); err != nil {
+		fmt.Println(err)
+		return nil
+	}
 	log.Done(initThreadName, initLogIndex, nil)
 
 	var (
