@@ -287,6 +287,7 @@ func once(db, db2 *sql.DB, log *Log) error {
 	initLogIndex = log.Exec(initThreadName, createTableStmt)
 	if _, err := db.Exec(createTableStmt); err != nil {
 		fmt.Println(err)
+		uniqueSets.Reset()
 		return nil
 	}
 	log.Done(initThreadName, initLogIndex, nil)
