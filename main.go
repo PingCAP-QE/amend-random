@@ -41,6 +41,8 @@ var (
 		"drop-unique-index":   DropUniqueIndex,
 		"add-column":          AddColumn,
 		"drop-column":         DropColumn,
+		"change-column-size":  ChangeColumnSize,
+		"change-column-type":  ChangeColumnType,
 	}
 	dmlExecutors = map[string]DMLExecutor{
 		"update-conflict": UpdateConflictExecutor,
@@ -154,6 +156,8 @@ func main() {
 			fmt.Println(err)
 			log.Dump("./log")
 			break
+		} else if totalRound == 1 {
+			log.Dump("./log")
 		}
 		if totalRound != 0 && totalRound >= round {
 			return
@@ -305,11 +309,13 @@ func once(db, db2 *sql.DB, log *Log) error {
 	readyDMLWg.Add(len(modeFns))
 	readyCommitWg.Add(len(modeFns))
 
+	snapshotSchema := CloneColumns(columns)
+
 	for _, fn := range modeFns {
 		go fn(&columns, db, log, &readyDMLWg, &readyDDLWg, &readyCommitWg)
 	}
 
-	dmlExecutor(&columns, db, log, dmlExecutorOption{
+	dmlExecutor(&snapshotSchema, db, log, dmlExecutorOption{
 		dmlCnt:        dmlCnt,
 		dmlThread:     dmlThread,
 		readyDMLWg:    &readyDMLWg,
@@ -331,4 +337,18 @@ func once(db, db2 *sql.DB, log *Log) error {
 		time.Sleep(10 * time.Second)
 	}
 	return check.Check(db, db2, tableName)
+}
+
+func CloneColumns(source []ColumnType) []ColumnType {
+	res := make([]ColumnType, len(source))
+	for i := 0; i < len(source); i++ {
+		res[i] = ColumnType{
+			i:    source[i].i,
+			name: source[i].name,
+			tp:   source[i].tp,
+			len:  source[i].len,
+			null: source[i].null,
+		}
+	}
+	return res
 }

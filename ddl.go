@@ -341,3 +341,59 @@ func DoUnrelatedDropTableDDL(db *sql.DB, tableName string, threadName string, lo
 	log.Done(threadName, logIndex, nil)
 	return nil
 }
+
+var sizeIncrease = map[kv.DataType]kv.DataType{
+	kv.TinyInt: kv.Int,
+	kv.Int:     kv.BigInt,
+	kv.Char:    kv.Char,
+	kv.Varchar: kv.Varchar,
+}
+
+func ChangeColumnSize(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDLWg, readyCommitWg *sync.WaitGroup) {
+	readyDMLWg.Done()
+	threadName := "change-column-size"
+	util.AssertNil(log.NewThread(threadName))
+	readyDDLWg.Wait()
+
+	ddlNum := ddlCnt + util.RdRange(1, 10)
+	for i := 0; i < ddlNum; i++ {
+		ok := false
+		var (
+			column *ColumnType
+			newTp  kv.DataType
+		)
+		for !ok {
+			column = &(*columns)[util.RdRange(0, len(*columns)/2)]
+			newTp, ok = sizeIncrease[column.tp]
+		}
+
+		if column.tp == newTp {
+			column.len += 1
+		} else {
+			column.tp = newTp
+		}
+
+		stmt := fmt.Sprintf("ALTER TABLE %s CHANGE COLUMN %s %s %s", tableName, column.name, column.name, column.tp.String())
+		if column.len > 0 {
+			stmt += fmt.Sprintf("(%d)", column.len)
+		}
+		if !column.null {
+			stmt += " NOT NULL"
+		} else {
+			stmt += " NULL"
+		}
+
+		logIndex := log.Exec(threadName, stmt)
+		if _, err := db.Exec(stmt); err != nil {
+			log.Done(threadName, logIndex, err)
+			fmt.Println(err)
+		} else {
+			log.Done(threadName, logIndex, nil)
+		}
+	}
+	readyCommitWg.Done()
+}
+
+func ChangeColumnType(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDLWg, readyCommitWg *sync.WaitGroup) {
+
+}
