@@ -197,7 +197,7 @@ func RdColumnsAndPk(leastCol int) ([]ColumnType, []ColumnType) {
 	columns := rdColumns(leastCol)
 	columns[0].null = false
 	primary := []ColumnType{columns[0]}
-	for pi := 1; columns[pi-1].tp == kv.TinyInt || pi <= 2; pi++ {
+	for pi := 1; pi < len(columns) && columns[pi-1].tp == kv.TinyInt || pi <= 2; pi++ {
 		columns[pi].null = false
 		primary = append(primary, columns[pi])
 	}
@@ -268,7 +268,7 @@ func GenCreateTableStmt(columns, primary []ColumnType, tableName string) string 
 func once(db, db2 *sql.DB, log *Log) error {
 	indexSet = make(map[string]struct{})
 	uniqueIndexSet = make(map[string]struct{})
-	leastCol := 0
+	leastCol := 10
 	if txnSize >= int64(200*mbSize) {
 		leastCol = 100
 	}
@@ -285,7 +285,11 @@ func once(db, db2 *sql.DB, log *Log) error {
 	log.Done(initThreadName, initLogIndex, nil)
 
 	initLogIndex = log.Exec(initThreadName, createTableStmt)
-	MustExec(db, createTableStmt)
+	if _, err := db.Exec(createTableStmt); err != nil {
+		fmt.Println(err)
+		uniqueSets.Reset()
+		return nil
+	}
 	log.Done(initThreadName, initLogIndex, nil)
 
 	var (

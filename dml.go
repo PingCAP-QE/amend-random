@@ -207,6 +207,20 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 				}
 			}
 
+			stmt, cond, cols := updateBatchSQL(*columns)
+			logIndex = log.Exec(threadName, stmt)
+			err = updateIfNotConflict(txn, stmt, cond, cols)
+			if err != nil {
+				log.Done(threadName, logIndex, err)
+				fmt.Println(err)
+				if breakTxn(err) {
+					doneWg.Done()
+					return
+				}
+			} else {
+				log.Done(threadName, logIndex, nil)
+			}
+
 			readyCommitWg.Wait()
 			logIndex = log.Exec(threadName, "COMMIT")
 			startCommitTS := time.Now()
