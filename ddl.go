@@ -377,20 +377,15 @@ func ChangeColumnSize(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, r
 			column *ColumnType
 			newTp  kv.DataType
 		)
-		ddlLock.RLock()
 		for !ok {
 			column = &(*columns)[util.RdRange(0, len(*columns)/2)]
 			newTp, ok = sizeIncrease[column.tp]
 		}
-		ddlLock.RUnlock()
-
-		ddlLock.Lock()
 		if column.tp == newTp {
 			column.len += 1
 		} else {
 			column.tp = newTp
 		}
-		ddlLock.Unlock()
 
 		stmt := fmt.Sprintf("ALTER TABLE %s CHANGE COLUMN %s %s %s", tableName, column.name, column.name, column.tp.String())
 		if column.len > 0 {
