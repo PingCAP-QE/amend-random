@@ -50,8 +50,8 @@ func (l *Log) NewThread(name string) error {
 }
 
 func (l *Log) Exec(name, sql string) int {
-	l.RLock()
-	defer l.RUnlock()
+	l.Lock()
+	defer l.Unlock()
 	threadIndex, ok := l.threadNames[name]
 	if !ok {
 		panic("use uninit thread %s" + name)
@@ -68,8 +68,8 @@ func (l *Log) Exec(name, sql string) int {
 }
 
 func (l *Log) Done(name string, logIndex int, err error) {
-	l.RLock()
-	defer l.RUnlock()
+	l.Lock()
+	defer l.Unlock()
 	threadIndex, ok := l.threadNames[name]
 	if !ok {
 		panic("use uninit thread %s" + name)
@@ -138,6 +138,6 @@ func (l *Log) Dump(dir string) {
 			wg.Done()
 		}(threadName, threadIndex)
 	}
-	l.RUnlock()
 	wg.Wait()
+	l.RUnlock()
 }
