@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
@@ -53,6 +54,7 @@ var (
 	checkTableName = ""
 	checkOnly      bool
 	mbSize         = 1048576
+	timeout        time.Duration
 )
 
 func init() {
@@ -78,6 +80,7 @@ func init() {
 	flag.StringVar(&txnSizeStr, "txn-size", "", "the estimated txn's size, will overwrite dml-count, eg. 100M, 1G")
 	flag.IntVar(&totalRound, "round", 0, "exec round, 0 means infinite execution")
 	flag.IntVar(&batchSize, "batch", 10, "batch size of insert, 0 for auto")
+	flag.DurationVar(&timeout, "timeout", 10*time.Minute, "execution phase timeout for each round")
 
 	rand.Seed(time.Now().UnixNano())
 	flag.Parse()
@@ -151,13 +154,27 @@ func main() {
 	for {
 		round++
 		fmt.Println("round:", round)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		errCh := make(chan error, 1)
 		log := newLog()
-		if err := once(db1, db2, &log); err != nil {
-			fmt.Println(err)
+
+		go func() {
+			errCh <- once(db1, db2, &log)
+		}()
+
+		select {
+		case <-ctx.Done():
+			fmt.Printf("batch timeout after %s, dumping log...\n", timeout)
 			log.Dump("./log")
-			break
-		} else if totalRound == 1 {
-			log.Dump("./log")
+			return
+		case err := <-errCh:
+			cancel()
+			if err != nil {
+				fmt.Println(err)
+				log.Dump("./log")
+			} else if totalRound == 1 {
+				log.Dump("./log")
+			}
 		}
 		if totalRound != 0 && totalRound >= round {
 			return
@@ -351,4 +368,8 @@ func CloneColumns(source []ColumnType) []ColumnType {
 		}
 	}
 	return res
+}
+
+func CloneColumn(source ColumnType) ColumnType {
+	return source
 }

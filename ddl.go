@@ -13,7 +13,6 @@ import (
 
 var (
 	indexMutex       sync.Mutex
-	ddlLock          sync.RWMutex
 	indexSet         = make(map[string]struct{})
 	uniqueIndexMutex sync.Mutex
 	uniqueIndexSet   = make(map[string]struct{})
@@ -142,8 +141,6 @@ func DropUniqueIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, re
 }
 
 func addIndex(columns []ColumnType, i int) (string, string) {
-	ddlLock.RLock()
-	defer ddlLock.RUnlock()
 	var b strings.Builder
 	indexes := make(map[int]struct{})
 	indexName := fmt.Sprintf("k%d", i)
@@ -167,8 +164,6 @@ func addIndex(columns []ColumnType, i int) (string, string) {
 }
 
 func dropIndex() (string, string) {
-	ddlLock.RLock()
-	defer ddlLock.RUnlock()
 	var (
 		indexName string
 		b         strings.Builder
@@ -197,8 +192,6 @@ func dropIndex() (string, string) {
 }
 
 func addUniqueIndex(columns []ColumnType, i int) (string, string, []ColumnType) {
-	ddlLock.RLock()
-	defer ddlLock.RUnlock()
 	var b strings.Builder
 	indexes := make(map[int]struct{})
 	cols := make([]ColumnType, 0, 5)
@@ -224,8 +217,6 @@ func addUniqueIndex(columns []ColumnType, i int) (string, string, []ColumnType) 
 }
 
 func dropUniqueIndex() (string, string) {
-	ddlLock.RLock()
-	defer ddlLock.RUnlock()
 	var (
 		indexName string
 		b         strings.Builder
@@ -284,9 +275,7 @@ func DropColumn(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDD
 	threadName := "drop-column"
 	util.AssertNil(log.NewThread(threadName))
 	readyDDLWg.Wait()
-	ddlLock.RLock()
 	colNum := len(*columns)
-	defer ddlLock.RUnlock()
 	leftIndex := 1
 	var unrelatedTblName string
 	if colCnt/2 > leftIndex {
@@ -295,10 +284,8 @@ func DropColumn(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDD
 	for i := colNum - 1; i >= leftIndex; i-- {
 		// dropped column should not be size-increased
 		// but I want to see if there is unexpected behavior with such invalid DDL
-		ddlLock.RLock()
 		dropColumn := (*columns)[i]
 		stmt := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", tableName, dropColumn.name)
-		defer ddlLock.RUnlock()
 		logIndex := log.Exec(threadName, stmt)
 		if _, err := db.Exec(stmt); err != nil {
 			log.Done(threadName, logIndex, err)
@@ -369,28 +356,38 @@ func ChangeColumnSize(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, r
 	threadName := "change-column-size"
 	util.AssertNil(log.NewThread(threadName))
 	readyDDLWg.Wait()
+	cacheLen := make(map[string]*ColumnType)
+
+	for _, column := range *columns {
+		col := CloneColumn(column)
+		cacheLen[column.name] = &col
+	}
 
 	ddlNum := ddlCnt + util.RdRange(1, 10)
+OUTER:
 	for i := 0; i < ddlNum; i++ {
 		ok := false
+		retryCnt := 0
 		var (
 			column *ColumnType
 			newTp  kv.DataType
 		)
-		ddlLock.RLock()
 		for !ok {
+			retryCnt += 1
+			if retryCnt > 10 {
+				continue OUTER
+			}
 			column = &(*columns)[util.RdRange(0, len(*columns)/2)]
+			column = cacheLen[column.name]
 			newTp, ok = sizeIncrease[column.tp]
 		}
-		ddlLock.RUnlock()
 
-		ddlLock.Lock()
 		if column.tp == newTp {
 			column.len += 1
 		} else {
 			column.tp = newTp
+			column.len = 0
 		}
-		ddlLock.Unlock()
 
 		stmt := fmt.Sprintf("ALTER TABLE %s CHANGE COLUMN %s %s %s", tableName, column.name, column.name, column.tp.String())
 		if column.len > 0 {
