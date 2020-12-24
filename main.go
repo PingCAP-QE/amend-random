@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -55,6 +56,10 @@ var (
 	checkOnly      bool
 	mbSize         = 1048576
 	timeout        time.Duration
+	dbnamePattern  = regexp.MustCompile(`^(.*\/)([0-9a-zA-Z_]+)\??.*$`)
+	dsn1NoDB       string
+	dsn2NoDB       string
+	dbname         string
 )
 
 func init() {
@@ -119,6 +124,9 @@ func initMode() error {
 	} else {
 		dmlExecutor = e
 	}
+	dsn1NoDB = dbnamePattern.FindStringSubmatch(dsn1)[1]
+	dsn2NoDB = dbnamePattern.FindStringSubmatch(dsn2)[1]
+	dbname = dbnamePattern.FindStringSubmatch(dsn1)[2]
 	return nil
 }
 
@@ -127,19 +135,27 @@ func main() {
 		panic(err)
 	}
 
-	db1, err := sql.Open("mysql", dsn1)
+	db1, err := sql.Open("mysql", dsn1NoDB)
 	if err != nil {
 		panic(err)
 	}
 	var db2 *sql.DB
 	if dsn2 != "" {
-		db2, err = sql.Open("mysql", dsn2)
+		db2, err = sql.Open("mysql", dsn2NoDB)
 		if err != nil {
 			panic(err)
 		}
 	}
 
 	if checkOnly {
+		db1, err := sql.Open("mysql", dsn1)
+		if err != nil {
+			panic(err)
+		}
+		db2, err = sql.Open("mysql", dsn2)
+		if err != nil {
+			panic(err)
+		}
 		if err := check.Check(db1, db2, tableName); err != nil {
 			fmt.Println(err)
 		} else {
@@ -148,8 +164,6 @@ func main() {
 		return
 	}
 
-	MustExec(db1, fmt.Sprintf("DROP TABLE IF EXISTS %s", checkTableName))
-	MustExec(db1, fmt.Sprintf("CREATE TABLE %s(id int)", checkTableName))
 	round := 0
 	for {
 		round++
@@ -159,6 +173,14 @@ func main() {
 		log := newLog()
 
 		go func() {
+			MustExec(db1, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbname))
+			MustExec(db1, fmt.Sprintf("CREATE DATABASE %s", dbname))
+			db1, err = sql.Open("mysql", dsn1)
+			if err != nil {
+				panic(err)
+			}
+			MustExec(db1, fmt.Sprintf("DROP TABLE IF EXISTS %s", checkTableName))
+			MustExec(db1, fmt.Sprintf("CREATE TABLE %s(id int)", checkTableName))
 			errCh <- once(db1, db2, &log)
 		}()
 
@@ -242,7 +264,7 @@ func rdColumns(least int) []ColumnType {
 
 func MustExec(db *sql.DB, sql string) {
 	if _, err := db.Exec(sql); err != nil {
-		panic(err)
+		panic(sql + ": " + err.Error())
 	}
 }
 
@@ -345,6 +367,12 @@ func once(db, db2 *sql.DB, log *Log) error {
 
 	uniqueSets.Reset()
 	if db2 != nil {
+		// reconnect to downstream database since it's been re-created
+		var err error
+		db2, err = sql.Open("mysql", dsn2)
+		if err != nil {
+			panic(err)
+		}
 		now := time.Now().Unix()
 		MustExec(db, fmt.Sprintf("INSERT INTO %s VALUES(%d)", checkTableName, now))
 		fmt.Println("wait for sync")
