@@ -98,6 +98,9 @@ func initMode() error {
 	set := make(map[string]struct{})
 	for i, m := range selectedModes {
 		m = strings.TrimSpace(m)
+		if m == "" {
+			continue
+		}
 		fn, ok := modeMap[m]
 		if !ok {
 			return errors.Errorf("mode %s not supportted", m)
@@ -131,6 +134,23 @@ func initMode() error {
 }
 
 func main() {
+	if checkOnly {
+		db1, err := sql.Open("mysql", dsn1)
+		if err != nil {
+			panic(err)
+		}
+		db2, err := sql.Open("mysql", dsn2)
+		if err != nil {
+			panic(err)
+		}
+		if err := check.Check(db1, db2, tableName); err != nil {
+			fmt.Println(err)
+		} else {
+			fmt.Println("check pass, data same.")
+		}
+		return
+	}
+
 	if err := initMode(); err != nil {
 		panic(err)
 	}
@@ -147,23 +167,6 @@ func main() {
 		}
 	}
 
-	if checkOnly {
-		db1, err := sql.Open("mysql", dsn1)
-		if err != nil {
-			panic(err)
-		}
-		db2, err = sql.Open("mysql", dsn2)
-		if err != nil {
-			panic(err)
-		}
-		if err := check.Check(db1, db2, tableName); err != nil {
-			fmt.Println(err)
-		} else {
-			fmt.Println("check pass, data same.")
-		}
-		return
-	}
-
 	round := 0
 	for {
 		round++
@@ -173,21 +176,21 @@ func main() {
 		log := newLog()
 
 		go func() {
-			MustExec(db1, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbname))
-			MustExec(db1, fmt.Sprintf("CREATE DATABASE %s", dbname))
+			MustExec(db1, dsn1NoDB, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbname), true, "")
+			MustExec(db1, dsn1NoDB, fmt.Sprintf("CREATE DATABASE %s", dbname), true, "database exists")
 			db1, err = sql.Open("mysql", dsn1)
 			if err != nil {
 				panic(err)
 			}
-			MustExec(db1, fmt.Sprintf("DROP TABLE IF EXISTS %s", checkTableName))
-			MustExec(db1, fmt.Sprintf("CREATE TABLE %s(id int)", checkTableName))
+			MustExec(db1, dsn1, fmt.Sprintf("DROP TABLE IF EXISTS %s", checkTableName), true, "")
+			MustExec(db1, dsn1, fmt.Sprintf("CREATE TABLE %s(id int)", checkTableName), true, "already exists")
 			errCh <- once(db1, db2, &log)
 		}()
 
 		select {
 		case <-ctx.Done():
 			fmt.Printf("batch timeout after %s, dumping log...\n", timeout)
-			log.Dump("./log")
+			fmt.Printf("log path: %s\n", log.Dump("./log"))
 			return
 		case err := <-errCh:
 			cancel()
@@ -262,10 +265,29 @@ func rdColumns(least int) []ColumnType {
 	return columns
 }
 
-func MustExec(db *sql.DB, sql string) {
-	if _, err := db.Exec(sql); err != nil {
-		panic(sql + ": " + err.Error())
+func MustExec(db *sql.DB, dsn string, sqlStmt string, retry bool, dupError string) {
+	var err error
+	maxtry := 20
+	for i := 0; i < maxtry; i++ {
+		_, err = db.Exec(sqlStmt)
+		if err == nil {
+			return
+		}
+		if strings.Contains(err.Error(), "connection refused") && i < maxtry-1 {
+			for err != nil {
+				time.Sleep(500 * time.Second)
+				db, err = sql.Open("mysql", dsn)
+			}
+			continue
+		}
+		if dupError != "" && strings.Contains(err.Error(), dupError) {
+			return
+		}
+		if !retry {
+			break
+		}
 	}
+	panic(sqlStmt + ": " + err.Error())
 }
 
 func GenDropTableStmt(tableName string) string {
@@ -324,7 +346,7 @@ func once(db, db2 *sql.DB, log *Log) error {
 	util.AssertNil(log.NewThread(initThreadName))
 
 	initLogIndex := log.Exec(initThreadName, clearTableStmt)
-	MustExec(db, clearTableStmt)
+	MustExec(db, dsn1, clearTableStmt, true, "")
 	log.Done(initThreadName, initLogIndex, nil)
 
 	initLogIndex = log.Exec(initThreadName, createTableStmt)
@@ -374,7 +396,7 @@ func once(db, db2 *sql.DB, log *Log) error {
 			panic(err)
 		}
 		now := time.Now().Unix()
-		MustExec(db, fmt.Sprintf("INSERT INTO %s VALUES(%d)", checkTableName, now))
+		MustExec(db, dsn1, fmt.Sprintf("INSERT INTO %s VALUES(%d)", checkTableName, now), true, "")
 		fmt.Println("wait for sync")
 		check.WaitSync(db2, now, checkTableName)
 		fmt.Println("ready to check")

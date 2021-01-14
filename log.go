@@ -85,12 +85,12 @@ var emptyTime = time.Time{}
 
 const LOGTIME_FORMAT = "2006-01-02 15:04:05.00000"
 
-func (l *Log) Dump(dir string) {
+func (l *Log) Dump(dir string) string {
 	startTime := time.Now().Format("2006-01-02_15:04:05")
 	logPath := path.Join(dir, startTime)
 	if err := os.MkdirAll(logPath, 0755); err != nil {
 		fmt.Println("error create log dir", err)
-		return
+		return logPath
 	}
 	var wg sync.WaitGroup
 	l.RLock()
@@ -140,4 +140,5 @@ func (l *Log) Dump(dir string) {
 	}
 	wg.Wait()
 	l.RUnlock()
+	return logPath
 }
