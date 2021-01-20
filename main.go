@@ -201,7 +201,7 @@ func main() {
 				log.Dump("./log")
 			}
 		}
-		if totalRound != 0 && totalRound >= round {
+		if totalRound != 0 && totalRound <= round {
 			return
 		}
 	}
