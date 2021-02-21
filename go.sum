@@ -212,8 +212,8 @@ github.com/you06/go-mikadzuki v0.0.0-20201120100832-d937c67decf5 h1:XhxFIuu6Yzgu
 github.com/you06/go-mikadzuki v0.0.0-20201120100832-d937c67decf5/go.mod h1:k0s5b1sf4ZcNGHhpz/Uz7+u2TA9dPAmoIFPzmq77IR8=
 github.com/zyguan/just v0.0.0-20200303164907-cac852552279/go.mod h1:6kWQwdxguAiSPj8OrHtKNLHR55qbZyHgVIa6xfKdoPA=
 github.com/zyguan/sqlz v0.0.0-20210219142550-dd6cabe9cd14/go.mod h1:AutAgtYwB095YomYO7uf7AESmwV0VfVdyt/4kXFV3l0=
-github.com/zyguan/tidb-test-util v0.0.0-20210221095501-6fce12e926bb h1:cLg7EqDC11R3P+hpRteif3lh5FjuBPrTaIoqoLQPr2w=
-github.com/zyguan/tidb-test-util v0.0.0-20210221095501-6fce12e926bb/go.mod h1:ppcsbvIF14P7kXGObbxsq9W4sr7QGBFjMvjw2ur9E/Y=
+github.com/zyguan/tidb-test-util v0.0.0-20210221123707-af7d847643be h1:/dgFAtuuuCoUzGuYMTlveHq6iCwhlmUvnjId1pWqm04=
+github.com/zyguan/tidb-test-util v0.0.0-20210221123707-af7d847643be/go.mod h1:ppcsbvIF14P7kXGObbxsq9W4sr7QGBFjMvjw2ur9E/Y=
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
