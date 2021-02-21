@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/you06/amend-random/check"
 	"github.com/you06/go-mikadzuki/kv"
 	"github.com/you06/go-mikadzuki/util"
+	"github.com/zyguan/tidb-test-util/pkg/result"
 )
 
 var (
@@ -167,7 +169,14 @@ func main() {
 		}
 	}
 
-	round := 0
+	round, conclusion, output := 0, result.Success, ""
+	result.InitDefault()
+	defer func() {
+		result.Report(conclusion, output)
+		if conclusion != result.Success {
+			os.Exit(1)
+		}
+	}()
 	for {
 		round++
 		fmt.Println("round:", round)
@@ -195,6 +204,8 @@ func main() {
 		case err := <-errCh:
 			cancel()
 			if err != nil {
+				conclusion = result.Failure
+				output = err.Error()
 				fmt.Println(err)
 				log.Dump("./log")
 			} else if totalRound == 1 {
