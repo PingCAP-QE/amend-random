@@ -200,6 +200,7 @@ func main() {
 		case <-ctx.Done():
 			fmt.Printf("batch timeout after %s, dumping log...\n", timeout)
 			fmt.Printf("log path: %s\n", log.Dump("./log"))
+			conclusion = result.TimedOut
 			return
 		case err := <-errCh:
 			cancel()
