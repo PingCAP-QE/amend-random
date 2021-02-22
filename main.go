@@ -201,6 +201,7 @@ func main() {
 			fmt.Printf("batch timeout after %s, dumping log...\n", timeout)
 			fmt.Printf("log path: %s\n", log.Dump("./log"))
 			conclusion = result.TimedOut
+			output = fmt.Sprintf("timed out after %v", timeout)
 			return
 		case err := <-errCh:
 			cancel()
