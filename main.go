@@ -62,6 +62,7 @@ var (
 	dsn1NoDB       string
 	dsn2NoDB       string
 	dbname         string
+	failfast       bool
 )
 
 func init() {
@@ -88,6 +89,7 @@ func init() {
 	flag.IntVar(&totalRound, "round", 0, "exec round, 0 means infinite execution")
 	flag.IntVar(&batchSize, "batch", 10, "batch size of insert, 0 for auto")
 	flag.DurationVar(&timeout, "timeout", 10*time.Minute, "execution phase timeout for each round")
+	flag.BoolVar(&failfast, "failfast", true, "exit immediately on the first failure")
 
 	rand.Seed(time.Now().UnixNano())
 	flag.Parse()
@@ -210,6 +212,9 @@ func main() {
 				output = err.Error()
 				fmt.Println(err)
 				log.Dump("./log")
+				if failfast {
+					return
+				}
 			} else if totalRound == 1 {
 				log.Dump("./log")
 			}
