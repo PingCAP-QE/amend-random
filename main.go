@@ -63,6 +63,7 @@ var (
 	dsn2NoDB       string
 	dbname         string
 	failfast       bool
+	clusteredIndex bool
 )
 
 func init() {
@@ -90,6 +91,7 @@ func init() {
 	flag.IntVar(&batchSize, "batch", 10, "batch size of insert, 0 for auto")
 	flag.DurationVar(&timeout, "timeout", 10*time.Minute, "execution phase timeout for each round")
 	flag.BoolVar(&failfast, "failfast", true, "exit immediately on the first failure")
+	flag.BoolVar(&clusteredIndex, "clusteredIndex", false, "if the clustered index is used for the test table")
 
 	rand.Seed(time.Now().UnixNano())
 	flag.Parse()
@@ -337,7 +339,11 @@ func GenCreateTableStmt(columns, primary []ColumnType, tableName string) string 
 		for i := 0; i < ps; i++ {
 			columns[i] = primary[i].name
 		}
-		indexes = append(indexes, fmt.Sprintf("PRIMARY KEY(%s)", strings.Join(columns, ", ")))
+		clustered := ""
+		if clusteredIndex {
+			clustered = "CLUSTERED"
+		}
+		indexes = append(indexes, fmt.Sprintf("PRIMARY KEY(%s) %s", strings.Join(columns, ", "), clustered))
 	}
 
 	for _, index := range indexes {
