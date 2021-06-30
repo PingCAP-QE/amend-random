@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -62,6 +64,7 @@ var (
 	dsn1NoDB       string
 	dsn2NoDB       string
 	dbname         string
+	logDir         string
 	failfast       bool
 	clusteredIndex bool
 )
@@ -85,6 +88,7 @@ func init() {
 	flag.StringVar(&mode, "mode", "", fmt.Sprintf("ddl modes, split with \",\", supportted modes: %s", strings.Join(supportedMode, ",")))
 	flag.StringVar(&dmlExecutorName, "executor", supportedExecutor[0], fmt.Sprintf("dml executor, supportted executors: %s", strings.Join(supportedExecutor, ",")))
 	flag.StringVar(&tableName, "tablename", "t", "tablename")
+	flag.StringVar(&logDir, "log-dir", "log", "log directory")
 	flag.BoolVar(&checkOnly, "checkonly", false, "only check diff")
 	flag.StringVar(&txnSizeStr, "txn-size", "", "the estimated txn's size, will overwrite dml-count, eg. 100M, 1G")
 	flag.IntVar(&totalRound, "round", 0, "exec round, 0 means infinite execution")
@@ -200,10 +204,19 @@ func main() {
 			errCh <- once(db1, db2, &log)
 		}()
 
+		dumpLog := func() string {
+			dir := log.Dump(logDir)
+			log.DumpTimeline(filepath.Join(dir, "timeline.html"))
+			return dir
+		}
+
 		select {
 		case <-ctx.Done():
+			buf := make([]byte, 1<<16)
+			runtime.Stack(buf, true)
 			fmt.Printf("batch timeout after %s, dumping log...\n", timeout)
-			fmt.Printf("log path: %s\n", log.Dump("./log"))
+			fmt.Printf("log path: %s\n", dumpLog())
+			fmt.Printf("stacktrace:\n%s\n", string(buf))
 			conclusion = result.TimedOut
 			output = fmt.Sprintf("timed out after %v", timeout)
 			return
@@ -213,12 +226,12 @@ func main() {
 				conclusion = result.Failure
 				output = err.Error()
 				fmt.Println(err)
-				log.Dump("./log")
+				dumpLog()
 				if failfast {
 					return
 				}
 			} else if totalRound == 1 {
-				log.Dump("./log")
+				dumpLog()
 			}
 		}
 		if totalRound != 0 && totalRound <= round {

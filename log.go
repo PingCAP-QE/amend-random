@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"strings"
@@ -141,4 +143,82 @@ func (l *Log) Dump(dir string) string {
 	wg.Wait()
 	l.RUnlock()
 	return logPath
+}
+
+func (l *Log) DumpTimeline(file string) error {
+	l.RLock()
+	size, maxTime := 0, int64(0)
+	for _, entries := range l.logs {
+		size += len(entries)
+	}
+	rows := make([][4]interface{}, 0, size)
+	for i, thread := range l.threads {
+		for _, entry := range l.logs[i] {
+			start := entry.start.UnixNano() / int64(time.Millisecond)
+			end := entry.end.UnixNano() / int64(time.Millisecond)
+			message := entry.sql
+			if entry.err != nil {
+				message += " [ERR: " + entry.err.Error() + "]"
+			}
+			if maxTime < end {
+				maxTime = end
+			} else if maxTime < start {
+				maxTime = start + 1
+			}
+			rows = append(rows, [4]interface{}{thread, message, start, end})
+		}
+	}
+	l.RUnlock()
+	for i := range rows {
+		if rows[i][3] == 0 {
+			rows[i][3] = maxTime
+		}
+	}
+	out, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprint(out, `<html>
+  <head>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+      google.charts.load('current', {'packages':['timeline']});
+      google.charts.setOnLoadCallback(drawChart);
+
+      async function drawChart() {
+        var container = document.getElementById('timeline');
+        var chart = new google.visualization.Timeline(container);
+        var dataTable = new google.visualization.DataTable();
+        var data = `)
+	if err != nil {
+		return err
+	}
+	err = json.NewEncoder(out).Encode(rows)
+	if err != nil {
+		return err
+	}
+	out.Seek(-1, io.SeekCurrent)
+	_, err = fmt.Fprint(out, `;
+
+        dataTable.addColumn({ type: 'string', id: 'Thread' });
+        dataTable.addColumn({ type: 'string', id: 'Message'})
+        dataTable.addColumn({ type: 'number', id: 'Start' });
+        dataTable.addColumn({ type: 'number', id: 'End' });
+        dataTable.addRows(data);
+
+        chart.draw(dataTable, {
+          timeline: { showBarLabels: false, colorByRowLabel: true },
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <div id="timeline" style="width: 100%; height: 100%;"></div>
+  </body>
+</html>
+`)
+	if err != nil {
+		return err
+	}
+	return nil
 }
