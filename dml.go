@@ -79,7 +79,7 @@ func UpdateConflictExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dml
 			for i := 0; i < dmlCnt; i++ {
 				stmt, cond, cols := updateBatchSQL(*columns)
 				logIndex := log.Exec(threadName, stmt)
-				err := updateIfNotConflict(txn, stmt, cond, cols)
+				err := updateIfNotConflict(txn, stmt, cond, cols, false)
 				if err != nil {
 					log.Done(threadName, logIndex, err)
 					fmt.Println(err)
@@ -209,7 +209,7 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 
 			stmt, cond, cols := updateBatchSQL(*columns)
 			logIndex = log.Exec(threadName, stmt)
-			err = updateIfNotConflict(txn, stmt, cond, cols)
+			err = updateIfNotConflict(txn, stmt, cond, cols, true)
 			if err != nil {
 				log.Done(threadName, logIndex, err)
 				fmt.Println(err)
@@ -350,7 +350,7 @@ func updateBatchSQL(columns []ColumnType) (string, string, []ColumnType) {
 	return b.String(), selectForUpdate.String(), cols
 }
 
-func updateIfNotConflict(txn *sql.Tx, updateStmt, selectForUpdateCond string, columns []ColumnType) error {
+func updateIfNotConflict(txn *sql.Tx, updateStmt, selectForUpdateCond string, columns []ColumnType, keepOldEntry bool) error {
 	uniqueSets.Lock()
 	uniques := uniqueSets.GetIndexesByCols(columns)
 	if len(uniques) > 0 {
@@ -419,7 +419,7 @@ func updateIfNotConflict(txn *sql.Tx, updateStmt, selectForUpdateCond string, co
 		_, err = txn.Exec(updateStmt)
 		if err == nil {
 			for i, unique := range uniques {
-				unique.UpdateEntry(befores[i], afters[i])
+				unique.UpdateEntry(befores[i], afters[i], keepOldEntry)
 			}
 		}
 		return err
