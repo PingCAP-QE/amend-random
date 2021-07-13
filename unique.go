@@ -152,7 +152,7 @@ func (u *Unique) HasConflict(befores, afters [][]interface{}) bool {
 	return false
 }
 
-func (u *Unique) UpdateEntry(befores, afters [][]interface{}) bool {
+func (u *Unique) UpdateEntry(befores, afters [][]interface{}, keepOldEntry bool) bool {
 	for i := 0; i < len(befores); i++ {
 		beforeEntry, afterEntry := u.row2key(befores[i]), u.row2key(afters[i])
 		if beforeEntry == afterEntry {
@@ -161,7 +161,9 @@ func (u *Unique) UpdateEntry(befores, afters [][]interface{}) bool {
 		if _, ok := u.entries[afterEntry]; ok {
 			return false
 		}
-		delete(u.entries, beforeEntry)
+		if !keepOldEntry {
+			delete(u.entries, beforeEntry)
+		}
 		u.entries[afterEntry] = struct{}{}
 	}
 	return true
