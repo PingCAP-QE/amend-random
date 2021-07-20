@@ -169,10 +169,15 @@ func dropIndex() (string, string) {
 		b         strings.Builder
 	)
 
+	timeout := 100
 	indexMutex.Lock()
 	for len(indexSet) == 0 {
 		indexMutex.Unlock()
 		time.Sleep(100 * time.Millisecond)
+		timeout--
+		if timeout == 0 {
+			break
+		}
 		indexMutex.Lock()
 	}
 	l := util.RdRange(0, len(indexSet))
