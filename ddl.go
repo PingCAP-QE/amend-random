@@ -172,7 +172,7 @@ func dropIndex() (string, string) {
 	)
 
 	indexMutex.Lock()
-	retryLimit := 100
+	retryLimit := 1200
 	for len(indexSet) == 0 {
 		indexMutex.Unlock()
 		time.Sleep(100 * time.Millisecond)
