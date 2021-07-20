@@ -253,7 +253,11 @@ func (c *ColumnType) ToColStr() string {
 	if c.len > 0 {
 		fmt.Fprintf(&b, "%s %s(%d)", c.name, c.tp, c.len)
 	} else {
-		fmt.Fprintf(&b, "%s %s", c.name, c.tp)
+		if strings.ToLower(c.name) == "datetime" {
+			fmt.Fprintf(&b, "%s %s DEFAULT CURRENT_TIMESTAMP", c.name, c.tp)
+		} else {
+			fmt.Fprintf(&b, "%s %s", c.name, c.tp)
+		}
 	}
 	if !c.null {
 		b.WriteString(" NOT")
