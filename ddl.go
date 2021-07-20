@@ -56,15 +56,17 @@ func DropIndex(columns *[]ColumnType, db *sql.DB, log *Log, readyDMLWg, readyDDL
 	readyDDLWg.Wait()
 	for i := 0; i < ddlCnt/2; i++ {
 		_, stmt := dropIndex()
-		logIndex := log.Exec(threadName, stmt)
-		if _, err := db.Exec(stmt); err != nil {
-			log.Done(threadName, logIndex, err)
-			fmt.Println(err)
-		} else {
-			log.Done(threadName, logIndex, nil)
-			doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
-			if doErr != nil {
-				fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
+		if stmt != "" {
+			logIndex := log.Exec(threadName, stmt)
+			if _, err := db.Exec(stmt); err != nil {
+				log.Done(threadName, logIndex, err)
+				fmt.Println(err)
+			} else {
+				log.Done(threadName, logIndex, nil)
+				doErr := DoSomeUnrelatedDDLs(db, &unrelatedTblName, threadName, log)
+				if doErr != nil {
+					fmt.Println(fmt.Sprintf("unrelated ddl failed err=%v", doErr))
+				}
 			}
 		}
 	}
@@ -169,14 +171,14 @@ func dropIndex() (string, string) {
 		b         strings.Builder
 	)
 
-	timeout := 100
 	indexMutex.Lock()
+	retryLimit := 100
 	for len(indexSet) == 0 {
 		indexMutex.Unlock()
 		time.Sleep(100 * time.Millisecond)
-		timeout--
-		if timeout == 0 {
-			break
+		retryLimit--
+		if retryLimit == 0 {
+			return "", ""
 		}
 		indexMutex.Lock()
 	}
