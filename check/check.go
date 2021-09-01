@@ -161,7 +161,7 @@ func sameResult(db1, db2 *sql.DB, stmt string) error {
 		}
 		result2 = append(result2, resultRow)
 	}
-
+	fmt.Println("record count, up: %d, down: %d", len(result1), len(result2))
 	if len(result1) != len(result2) {
 		return errors.Errorf("record count not same, up: %d, down: %d", len(result1), len(result2))
 	}
@@ -249,10 +249,12 @@ func Check(db1, db2 *sql.DB, tableName string) error {
 		return errors.Trace(err)
 	}
 
+	fmt.Println("compare index")
 	if err := sameResult(db1, db2, showIndexes); err != nil {
 		return errors.Trace(err)
 	}
 
+	fmt.Println("compare record")
 	if err := sameResult(db1, db2, query); err != nil {
 		return errors.Trace(err)
 	}

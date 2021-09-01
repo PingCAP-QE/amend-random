@@ -205,7 +205,7 @@ func addUniqueIndex(columns []ColumnType, i int) (string, string, []ColumnType) 
 	indexName := fmt.Sprintf("u%d", i)
 
 	fmt.Fprintf(&b, "CREATE UNIQUE INDEX %s on %s(", indexName, tableName)
-	for i := 0; i < util.RdRange(1, 5); i++ {
+	for i := 0; i < util.RdRange(3, 5); i++ {
 		index := util.RdRange(0, len(columns))
 		if _, ok := indexes[index]; ok {
 			continue
