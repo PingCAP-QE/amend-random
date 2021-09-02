@@ -161,7 +161,7 @@ func sameResult(db1, db2 *sql.DB, stmt string) error {
 		}
 		result2 = append(result2, resultRow)
 	}
-	fmt.Println("record count, up: %d, down: %d", len(result1), len(result2))
+	fmt.Printf("record count, up: %d, down: %d\n", len(result1), len(result2))
 	if len(result1) != len(result2) {
 		return errors.Errorf("record count not same, up: %d, down: %d", len(result1), len(result2))
 	}
