@@ -285,9 +285,9 @@ func insertSQL(columns []ColumnType, count int) string {
 					indexRow[k] = row[c.i]
 				}
 				if unique.HasConflictEntry(indexRow) {
+					fmt.Println("conflict retry time:", tryTime)
+					fmt.Println("index name:", unique.name, "data type:", unique.cols,"value:", indexRow, "conflict")
 					if tryTime >= RETRY_COUNT {
-						fmt.Println("retry time exceed RETRY_COUNT:", tryTime)
-						fmt.Println("index name:", unique.name, "data type:", unique.cols,"value:", indexRow, "duplicate")
 						break GENERATE
 					}
 					continue GENERATE
