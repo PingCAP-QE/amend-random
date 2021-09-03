@@ -247,7 +247,7 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 	}()
 }
 
-const RETRY_COUNT = 10
+const RETRY_COUNT = 100
 
 func insertSQL(columns []ColumnType, count int) string {
 	var (
@@ -285,6 +285,8 @@ func insertSQL(columns []ColumnType, count int) string {
 					indexRow[k] = row[c.i]
 				}
 				if unique.HasConflictEntry(indexRow) {
+					fmt.Println("conflict retry time:", tryTime)
+					fmt.Println("index name:", unique.name, "data type:", unique.cols,"value:", indexRow, "conflict")
 					if tryTime >= RETRY_COUNT {
 						break GENERATE
 					}
