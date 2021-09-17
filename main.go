@@ -288,17 +288,16 @@ func RdColumnsAndPk(leastCol int) ([]ColumnType, []ColumnType) {
 }
 
 func rdColumns(least int) []ColumnType {
-	colCnt = util.RdRange(columnLeast, columnMost)
-	if colCnt < least {
-		colCnt = least
+	colNum := util.RdRange(columnLeast, columnMost)
+	if colNum < least {
+		colNum = least
 	}
-	columns := make([]ColumnType, colCnt)
-
-	for i := 0; i < colCnt; i++ {
+	columns := make([]ColumnType, colNum)
+	for i := 0; i < colNum; i++ {
 		tp := kv.RdType()
 		columns[i] = NewColumnType(i, fmt.Sprintf("col_%d", i), tp, tp.Size(), util.RdBool())
 	}
-
+	colCnt = colNum
 	return columns
 }
 
