@@ -289,6 +289,7 @@ func RdColumnsAndPk(leastCol int) ([]ColumnType, []ColumnType) {
 
 func rdColumns(least int) []ColumnType {
 	colNum := util.RdRange(columnLeast, columnMost)
+	colCnt = colNum
 	if colNum < least {
 		colNum = least
 	}
@@ -297,7 +298,6 @@ func rdColumns(least int) []ColumnType {
 		tp := kv.RdType()
 		columns[i] = NewColumnType(i, fmt.Sprintf("col_%d", i), tp, tp.Size(), util.RdBool())
 	}
-	colCnt = colNum
 	return columns
 }
 
