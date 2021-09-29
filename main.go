@@ -288,16 +288,17 @@ func RdColumnsAndPk(leastCol int) ([]ColumnType, []ColumnType) {
 }
 
 func rdColumns(least int) []ColumnType {
-	colNum := util.RdRange(columnLeast, columnMost)
-	colCnt = colNum
-	if colNum < least {
-		colNum = least
+	colCnt := util.RdRange(columnLeast, columnMost)
+	if colCnt < least {
+		colCnt = least
 	}
-	columns := make([]ColumnType, colNum)
-	for i := 0; i < colNum; i++ {
+	columns := make([]ColumnType, colCnt)
+
+	for i := 0; i < colCnt; i++ {
 		tp := kv.RdType()
 		columns[i] = NewColumnType(i, fmt.Sprintf("col_%d", i), tp, tp.Size(), util.RdBool())
 	}
+
 	return columns
 }
 
@@ -378,6 +379,7 @@ func once(db, db2 *sql.DB, log *Log) error {
 		leastCol = 100
 	}
 	columns, primary := RdColumnsAndPk(leastCol)
+	colCnt = len(columns)
 	uniqueSets.NewIndex("primary", primary)
 	initThreadName := "init"
 	clearTableStmt := GenDropTableStmt(tableName)
