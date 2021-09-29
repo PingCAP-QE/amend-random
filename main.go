@@ -288,7 +288,7 @@ func RdColumnsAndPk(leastCol int) ([]ColumnType, []ColumnType) {
 }
 
 func rdColumns(least int) []ColumnType {
-	colCnt = util.RdRange(columnLeast, columnMost)
+	colCnt := util.RdRange(columnLeast, columnMost)
 	if colCnt < least {
 		colCnt = least
 	}
@@ -379,6 +379,7 @@ func once(db, db2 *sql.DB, log *Log) error {
 		leastCol = 100
 	}
 	columns, primary := RdColumnsAndPk(leastCol)
+	colCnt = len(columns)
 	uniqueSets.NewIndex("primary", primary)
 	initThreadName := "init"
 	clearTableStmt := GenDropTableStmt(tableName)
