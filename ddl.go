@@ -209,6 +209,7 @@ func addUniqueIndex(columns []ColumnType, i int) (string, string, []ColumnType) 
 	for i := 0; i < indexNum; i++ {
 		index := util.RdRange(0, len(columns))
 		if _, ok := indexes[index]; ok {
+			i--
 			continue
 		}
 		indexes[index] = struct{}{}
