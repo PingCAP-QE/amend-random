@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/you06/go-mikadzuki/kv"
 	"github.com/you06/go-mikadzuki/util"
 )
@@ -83,6 +84,7 @@ func UpdateConflictExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dml
 				if err != nil {
 					log.Done(threadName, logIndex, err)
 					fmt.Println(err)
+					mustNotInconsistencyError(err)
 					if breakTxn(err) {
 						doneWg.Done()
 						return
@@ -163,6 +165,7 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 				if err != nil {
 					log.Done(threadName, logIndex, err)
 					fmt.Println(err)
+					mustNotInconsistencyError(err)
 					if breakTxn(err) {
 						doneInsertWg.Done()
 						doneWg.Done()
@@ -198,6 +201,7 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 				if err != nil {
 					log.Done(threadName, logIndex, err)
 					fmt.Println(err)
+					mustNotInconsistencyError(err)
 					if breakTxn(err) {
 						doneWg.Done()
 						return
@@ -213,6 +217,7 @@ func InsertUpdateExecutor(columns *[]ColumnType, db *sql.DB, log *Log, opt dmlEx
 			if err != nil {
 				log.Done(threadName, logIndex, err)
 				fmt.Println(err)
+				mustNotInconsistencyError(err)
 				if breakTxn(err) {
 					doneWg.Done()
 					return
@@ -286,7 +291,7 @@ func insertSQL(columns []ColumnType, count int) string {
 				}
 				if unique.HasConflictEntry(indexRow) {
 					fmt.Println("conflict retry time:", tryTime)
-					fmt.Println("index name:", unique.name, "data type:", unique.cols,"value:", indexRow, "conflict")
+					fmt.Println("index name:", unique.name, "data type:", unique.cols, "value:", indexRow, "conflict")
 					if tryTime >= RETRY_COUNT {
 						break GENERATE
 					}
@@ -489,6 +494,20 @@ func updateItem(before interface{}, tp kv.DataType) interface{} {
 		return before.(string) + "-p"
 	default:
 		panic(fmt.Sprintf("tp %s not supported", tp.String()))
+	}
+}
+
+func mustNotInconsistencyError(err error) {
+	if err == nil {
+		return
+	}
+	if e, ok := err.(*mysql.MySQLError); ok {
+		// ref: https://github.com/pingcap/docs-cn/pull/7880/files
+		for _, code := range []uint16{8140, 8141, 8133, 8139, 8134, 8223} {
+			if e.Number == code {
+				panic(err)
+			}
+		}
 	}
 }
 
