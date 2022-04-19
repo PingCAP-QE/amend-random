@@ -149,9 +149,26 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+		var v []byte
+		if err := db1.QueryRow("select @@tidb_enable_mutation_checker").Scan(&v); err == nil {
+			fmt.Println("enable mutation checker")
+			db1.Exec("set global tidb_enable_mutation_checker=1")
+		}
+		if err := db1.QueryRow("select @@tidb_txn_assertion_level").Scan(&v); err == nil {
+			fmt.Println("use strict assertion level")
+			db1.Exec("set global tidb_txn_assertion_level=strict")
+		}
 		db2, err := sql.Open("mysql", dsn2)
 		if err != nil {
 			panic(err)
+		}
+		if err := db2.QueryRow("select @@tidb_enable_mutation_checker").Scan(&v); err == nil {
+			fmt.Println("enable mutation checker")
+			db2.Exec("set global tidb_enable_mutation_checker=1")
+		}
+		if err := db2.QueryRow("select @@tidb_txn_assertion_level").Scan(&v); err == nil {
+			fmt.Println("use strict assertion level")
+			db2.Exec("set global tidb_txn_assertion_level=strict")
 		}
 		if err := check.Check(db1, db2, tableName); err != nil {
 			fmt.Println(err)
