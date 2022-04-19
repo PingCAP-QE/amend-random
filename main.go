@@ -196,6 +196,16 @@ func main() {
 			MustExec(db1, dsn1NoDB, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbname), true, "")
 			MustExec(db1, dsn1NoDB, fmt.Sprintf("CREATE DATABASE %s", dbname), true, "database exists")
 			db1, err = sql.Open("mysql", dsn1)
+
+			var v []byte
+			if err := db1.QueryRow("select @@tidb_enable_mutation_checker").Scan(&v); err == nil {
+				fmt.Println("enable mutation checker")
+				db1.Exec("set global tidb_enable_mutation_checker=1")
+			}
+			if err := db1.QueryRow("select @@tidb_txn_assertion_level").Scan(&v); err == nil {
+				fmt.Println("use strict assertion level")
+				db1.Exec("set global tidb_txn_assertion_level=strict")
+			}
 			if err != nil {
 				panic(err)
 			}
@@ -314,6 +324,15 @@ func MustExec(db *sql.DB, dsn string, sqlStmt string, retry bool, dupError strin
 			for err != nil {
 				time.Sleep(500 * time.Second)
 				db, err = sql.Open("mysql", dsn)
+				var v []byte
+				if err := db.QueryRow("select @@tidb_enable_mutation_checker").Scan(&v); err == nil {
+					fmt.Println("enable mutation checker")
+					db.Exec("set global tidb_enable_mutation_checker=1")
+				}
+				if err := db.QueryRow("select @@tidb_txn_assertion_level").Scan(&v); err == nil {
+					fmt.Println("use strict assertion level")
+					db.Exec("set global tidb_txn_assertion_level=strict")
+				}
 			}
 			continue
 		}
